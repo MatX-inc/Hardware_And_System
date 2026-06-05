@@ -1,0 +1,5 @@
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS *.cpp)
+add_executable(sdb_tests ${TEST_SOURCES})
+target_link_libraries(sdb_tests PRIVATE sdbcore Catch2::Catch2WithMain)
+include(Catch)
+catch_discover_tests(sdb_tests)
