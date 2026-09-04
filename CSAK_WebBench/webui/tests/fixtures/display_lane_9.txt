@@ -1,0 +1,420 @@
+
+**** SERDES DISPLAY DIAG DATA ****
+Rev ID Letter        = 00
+Rev ID Process       = 02
+Rev ID Model         = 1F
+Rev ID 2             = 01
+Rev ID # Lanes       = 8
+Core  =  9;    Lane  = All lanes
+SERDES API Version   = A00401
+Common Ucode Version = D003_07
+AFE Hardware Version = 0xA0
+SerDes type          = condor3_pc
+FLR supported        = 0x1
+lane_select          = 0xff
+
+LN (P RX  , CDRxN , UC_CFG,   UC_STS,  RST, STP) SD LCK RXPPM PF(M,L,H) VGA  DCO  TP(0,1,2)      RXFFE(n3,n2,n1,m,p1,p2)      DFE(1,2)  FLT(M,S) TXPPM        TXEQ(n3,n2,n1,m,p1,p2) NLC(U,L)    EYE(U,M,L)  LINK_TIME  SNR     BER
+ 0 (++P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (16,22,12)  54   -2 ( 0,40, 0) ( 138,-110,   23, 324,   49, 146)  ( x, 0) (  6, 37)    0    PT(  0,  0,-38,130,  0,  0)( +0, +0) ( 66, 66, 66)  3681.2    21.95  <1.4e-10
+ 1 (++P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (16,21,13)  49   26 ( 0,41, 0) ( 138,-106,    0, 324,   53, 142)  ( x, 0) (  7, 37)    0    PT(  0,  0,-38,130,  0,  0)( +0, +0) ( 66, 66, 64)  3663.0    21.78  <1.4e-10
+ 2 (++P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (18,21,12)  49   10 ( 0,41, 0) ( 146,-128,   22, 322,   37, 152)  ( x, 0) (  6, 34)    0    PT(  0,  0,-38,130,  0,  0)( +0, +0) ( 68, 68, 66)  3647.6    21.96  <1.4e-10
+ 3 (++P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (18,23,12)  54   25 ( 0,42, 0) ( 145,-113,   15, 331,   42, 150)  ( x, 0) (  7, 37)    0    PT(  0,  0,-38,130,  0,  0)( +0, +0) ( 62, 62, 62)  3816.6    21.35  <1.4e-10
+ 4 (+-P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (15,21,11)  48    5 ( 0,40, 0) ( 132,-124,   52, 312,   44, 142)  ( x, 0) (  6, 35)    0    PT(  0,  0,-36,132,  0,  0)( +0, +0) ( 68, 68, 68)  4251.5    22.47  <1.4e-10
+ 5 (+-P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (16,21,11)  52    7 ( 0,40, 0) ( 131,-107,   10, 323,   53, 140)  ( x, 0) (  6, 36)    0    PT(  0,  0,-38,130,  0,  0)( +0, +0) ( 66, 66, 66)  3499.2    22.08  <1.4e-10
+ 6 (+-P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (15,22,12)  47   25 ( 0,39, 0) ( 135,-115,   16, 319,   60, 147)  ( x, 0) (  5, 35)    0    PT(  0,  0,-36,132,  0,  0)( +0, +0) ( 68, 68, 68)  3877.4    22.42  <1.4e-10
+ 7 (+-P4E ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 1* 1*    0  (16,22,12)  52    5 ( 0,40, 0) ( 135,-113,   22, 324,   41, 142)  ( x, 0) (  6, 35)    0    PT(  0,  0,-34,134,  0,  0)( +0, +0) ( 68, 66, 68)  3765.4    22.34  <1.4e-10
+
+
+*************************************
+**** SERDES LANE 0 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 0
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -38
+TXFIR Main                  = 130
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 1 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 0
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -38
+TXFIR Main                  = 130
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 2 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 0
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -38
+TXFIR Main                  = 130
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 3 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 0
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -38
+TXFIR Main                  = 130
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 4 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 1
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -36
+TXFIR Main                  = 132
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 5 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 1
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -38
+TXFIR Main                  = 130
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 6 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 1
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -36
+TXFIR Main                  = 132
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+
+*************************************
+**** SERDES LANE 7 CONFIGURATION ****
+*************************************
+
+Lane Config from PCS        = 0
+
+Auto-Neg Enabled            = 0
+RX low power                = 0
+CDR Mode                    = 0
+Media Type                  = 1
+Fast Link Recovery Enable   = 0
+Lnktrn Enable               = 1
+Lnktrn Auto Polarity Enable = 1
+Lnktrn Restart timeout En   = 1
+Lnktrn TXFIR PAM4 step size = 2
+ILT Retimer Mode Enable     = 0
+ILT Local Tx Pattern En     = 0
+ILT Num Lanes per Segment   = 0
+ILT Lanes per Segment Bitmap Lane 0 = 0x01
+ILT Lanes per Segment Bitmap Lane 1 = 0x02
+ILT Lanes per Segment Bitmap Lane 2 = 0x04
+ILT Lanes per Segment Bitmap Lane 3 = 0x08
+ILT Lanes per Segment Bitmap Lane 4 = 0x10
+ILT Lanes per Segment Bitmap Lane 5 = 0x20
+ILT Lanes per Segment Bitmap Lane 6 = 0x40
+ILT Lanes per Segment Bitmap Lane 7 = 0x80
+Force ER Mode               = 0
+Force NR Mode               = 0
+Link Partner has Precoder En= 0
+Force PAM4 mode             = 1
+Force NRZ mode              = 0
+TX OSR Mode Force           = 1
+TX OSR Mode Force Val       = 0
+RX OSR Mode Force           = 1
+RX OSR Mode Force Val       = 0
+TX Polarity Invert          = 0
+RX Polarity Invert          = 1
+
+TXFIR Range                 = PAM4
+TXFIR Pre3                  = 0
+TXFIR Pre2                  = 0
+TXFIR Pre1                  = -34
+TXFIR Main                  = 134
+TXFIR Post1                 = 0
+TXFIR Post2                 = 0
+TXFIR NLC Upper Eye percent = 0
+TXFIR NLC Lower Eye percent = 0
+
+**** SERDES DISPLAY DIAG DATA END ****
+
+

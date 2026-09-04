@@ -1,0 +1,18 @@
+Power-clock supply variant is CSAK
+AAPL AACS PS2 ATE server internal  Compiled: Aug  1 2026 09:07:15, rev 0x200000 branch: master sha: 444bacb89b6f01d36ec27da20ca47f4d5bde7ea5 tag: (none) modified_files: 0 unknown_files: 3 status: Your branch is up to date with 'origin/master'.
+Serial 48879 12.05V 0.61A
+VDD075          0:  ON  0.750V 100.00A | 0.750V  11.000A |  8.250W @  250 : 1500
+TRVDD075-0      1:  ON  0.750V  13.00A | 0.750V   2.830A |  2.122W @  500 : 1250
+TRVDD075-1      2:  ON  0.750V  13.00A | 0.750V  <0.150A |  0.069W @  500 : 1250
+VDDH            3:  ON  1.800V  13.00A | 1.799V  <0.150A |  0.000W @  750 : 1000
+PVDD090-0       4:  ON  0.900V   6.50A | 0.900V   0.225A |  0.202W @ 1000 :  750
+PVDD090-1       5:  ON  0.900V   6.50A | 0.899V   0.036A |  0.033W @ 1000 :  750
+PVDD150-0       6:  ON  1.500V   6.50A | 1.500V  <0.035A |  0.017W @ 1250 :  500
+PVDD150-1       7:  ON  1.500V   6.50A | 1.500V  <0.035A |  0.000W @ 1250 :  500
+TRVDD090-0      8:  ON  0.900V  50.00A | 0.899V   7.630A |  6.859W @ 1500 :  250
+TRVDD090-1      9:  ON  0.900V  50.00A | 0.900V   1.890A |  1.701W @ 1500 :  250
+RVDD150-0      10:  ON  1.500V   9.00A | 1.500V   1.060A |  1.590W @ 1750 :    0
+RVDD150-1      11:  ON  1.500V   9.00A | 1.500V   0.158A |  0.237W @ 1750 :    0
+OSVF3.3-0      12:  ON  3.300V  13.00A | 3.299V   0.110A |  0.363W @    1 : 1748
+OSFP3.3-1      13:  ON  3.300V  13.00A | 3.299V   0.109A |  0.360W @    1 : 1748
+Total:                                                     21.804W

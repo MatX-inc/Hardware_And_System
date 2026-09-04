@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSAK Web Bench</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F2F4F7; --surface:#FFFFFF; --surface2:#E9EDF2; --ink:#1B2430; --muted:#5A6675;
+  --line:#D5DBE3; --line-strong:#B8C1CC; --copper:#B4622D; --teal:#0F7E8C; --good:#2F7D4E; --good-soft:#2F7D4E1A;
+  --warn:#9A6A00; --warn-soft:#9A6A0022; --bad:#B3362B; --bad-soft:#B3362B1A; --code-bg:#EAEDF1;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+  --tile-shadow:0 1px 2px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    /* darker page, lighter cards, and clearly lighter borders so card, tile
+       and tab edges read at a glance on a dark monitor */
+    --bg:#0B0E13; --surface:#1B222B; --surface2:#28313C; --ink:#EDF1F6; --muted:#A3AEBB;
+    --line:#3A4552; --line-strong:#4E5B6A; --copper:#F0925A; --teal:#4CC6D3; --good:#5EC78A; --good-soft:#5EC78A2A;
+    --warn:#E6B44A; --warn-soft:#E6B44A2A; --bad:#F07568; --bad-soft:#F075682A; --code-bg:#12171E;
+    --shadow:0 1px 0 rgba(255,255,255,.04) inset,0 2px 8px rgba(0,0,0,.45);
+    --tile-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 1px 4px rgba(0,0,0,.4);
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:14px 22px;border-bottom:1px solid var(--line);background:var(--surface)}
+header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
+.pill{font-family:'IBM Plex Mono',monospace;font-size:11.5px;padding:3px 10px;
+  border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.live{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+.pill.demo{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
+.spacer{flex:1}
+button{font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;
+  padding:6px 14px;border-radius:7px;border:1px solid var(--line);
+  background:var(--surface2);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--copper)}
+button:focus-visible{outline:2px solid var(--copper);outline-offset:1px}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{border-color:var(--good);color:var(--good);background:var(--good-soft)}
+button.danger{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+button.confirming{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
+button.busy{opacity:.6;pointer-events:none}
+button.mini{font-size:11px;padding:2px 8px;border-radius:5px}
+.octal-actions{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 12px;align-items:center}
+.octal-actions .spacer{flex:1 1 auto;min-width:8px}
+#action-out{font-family:'IBM Plex Mono',monospace;font-size:11.5px;margin-top:10px;
+  padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--code-bg);
+  white-space:pre-wrap;max-height:140px;overflow:auto;display:none}
+#action-out.err{border-color:var(--bad);color:var(--bad)}
+label.auto{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+main{display:grid;grid-template-columns:minmax(420px,1fr) minmax(460px,720px);
+  gap:18px;padding:18px 22px;align-items:stretch}
+main .col{display:flex;flex-direction:column;gap:18px;min-width:0}
+/* Lane detail stretches to the full height of the left column (board map +
+   power rails) and never collapses below a comfortable working height */
+#detail-card{display:flex;flex-direction:column;min-height:560px}
+#detail-card .pane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+#detail-card .pane[hidden]{display:none}
+#lane-detail{overflow-x:auto;flex:1 1 auto;min-height:220px}
+#lane-detail .empty{padding-top:24px}
+#detail-card #action-out{max-height:260px;flex:0 0 auto}
+#detail-tabs .die-tab-sub{max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lane-detail td{white-space:nowrap;padding:4px 5px}
+#lane-detail th{padding:4px 5px}
+#lane-detail td:last-child button{margin:1px 0}
+@media(max-width:980px){main{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line-strong);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+.card h2{font-size:12px;margin:0 0 10px;font-family:'IBM Plex Mono',monospace;
+  text-transform:uppercase;letter-spacing:.13em;color:var(--muted);font-weight:600}
+.card h2 .hdr-extra{float:right;text-transform:none;letter-spacing:0}
+#log-card h2 .hdr-extra{display:inline-flex;align-items:center;gap:10px;font-weight:400}
+#log-card h2 #log-clear{text-transform:none;letter-spacing:0}
+/* board map */
+.die{margin-bottom:6px}
+.die-tabs{display:flex;gap:6px;border-bottom:2px solid var(--line-strong);margin:0 0 12px}
+.die-tab{background:var(--surface2);border:1px solid var(--line-strong);border-bottom:none;border-radius:8px 8px 0 0;margin-bottom:-2px;
+  padding:6px 14px 8px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;color:var(--muted);
+  cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;gap:1px;opacity:.8}
+.die-tab:hover{color:inherit;opacity:1}
+.die-tab.active{color:var(--copper);background:var(--surface);border-color:var(--copper);border-bottom:2px solid var(--surface);opacity:1}
+.die-tab-sub{font-family:'IBM Plex Sans',sans-serif;font-size:10.5px;font-weight:400;color:var(--muted)}
+.octals{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.octal{border:1.5px solid var(--line-strong);border-radius:9px;padding:9px 11px;cursor:pointer;
+  background:var(--surface2);box-shadow:var(--tile-shadow);transition:border-color .12s,box-shadow .12s}
+.octal:hover{border-color:var(--copper)}
+.octal.selected{border-color:var(--copper);box-shadow:0 0 0 1.5px var(--copper),var(--tile-shadow)}
+.octal.unusable{opacity:.45;cursor:not-allowed}
+.octal-top{display:flex;align-items:baseline;gap:8px}
+.octal-addr{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px}
+.octal-conn{font-size:11.5px;color:var(--muted)}
+.octal-badges{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.badge{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 7px;border-radius:99px;
+  border:1px solid var(--line-strong);color:var(--muted)}
+.badge.fw{border-color:var(--warn);color:var(--warn)}
+.badge.run{border-color:var(--good);color:var(--good)}
+.badge.temp{border:none;background:var(--surface2)}
+.lanes-strip{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;margin-top:8px}
+.lane-cell{height:14px;border-radius:3px;background:var(--surface2);border:1px solid var(--line-strong);
+  font-size:8.5px;text-align:center;line-height:13px;color:var(--muted);
+  font-family:'IBM Plex Mono',monospace}
+.lane-cell.locked{background:var(--good-soft);border-color:var(--good);color:var(--good)}
+.lane-cell.unlocked{background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+.lane-cell.stopped{background:repeating-linear-gradient(135deg,var(--surface2) 0 3px,var(--line) 3px 5px);border-color:var(--muted);color:var(--muted)}
+.lane-cell.xt-parked{background:repeating-linear-gradient(135deg,var(--surface2) 0 3px,var(--line) 3px 5px)!important;border-color:var(--muted)!important;color:var(--muted)!important}
+.lane-cell.xt-victim{box-shadow:0 0 0 2px var(--copper);border-color:var(--copper)!important;font-weight:700}
+.lane-cell.xt-measuring{animation:xtpulse 1.2s ease-in-out infinite}
+@keyframes xtpulse{0%,100%{box-shadow:0 0 0 2px var(--copper)}50%{box-shadow:0 0 0 4px var(--copper),0 0 10px var(--copper)}}
+.badge.xt{border-color:var(--copper);color:var(--copper)}
+tr.lane-stopped td{color:var(--muted)}
+.hint{color:var(--muted);font-size:11px}
+/* crosstalk pane */
+.xt-intro{font-size:12.5px;color:var(--muted);margin:2px 0 12px;line-height:1.5}
+.xt-form{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end;padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface2)}
+.xt-form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted)}
+.xt-form label.chk{flex-direction:row;align-items:center;gap:6px;padding-bottom:6px}
+.xt-form select,.xt-form input[type=number]{font-size:12.5px;padding:4px 6px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface);color:inherit;font-family:'IBM Plex Mono',monospace}
+.xt-form input[type=number]{width:70px}
+.xt-est{font-size:11px;color:var(--muted);padding-bottom:6px}
+#xt-progress{margin-top:12px}
+.xt-bar{height:8px;border-radius:4px;background:var(--surface2);border:1px solid var(--line-strong);overflow:hidden}
+.xt-bar-fill{height:100%;width:0;background:var(--copper);transition:width .4s}
+.xt-bar-fill.good{background:var(--good)} .xt-bar-fill.bad{background:var(--bad)}
+.xt-msg{font-size:11.5px;color:var(--muted);margin:6px 0}
+.xt-live{width:auto;margin-top:6px} .xt-live th,.xt-live td{padding:3px 10px;font-size:11.5px}
+.xt-live tr.isolated td{color:var(--teal)} .xt-live tr.all_on td{color:var(--copper)}
+.xt-live td.done{color:var(--good)} .xt-live td.error{color:var(--bad)}
+.xt-done{margin-top:10px;padding:10px 12px;border:1px solid var(--good);border-radius:8px;background:var(--good-soft);font-size:12.5px}
+.xt-done ul{margin:6px 0 0 16px;padding:0} .xt-done a{color:var(--copper)}
+.xt-h3{font-size:11px;margin:16px 0 6px;font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:.13em;color:var(--muted)}
+.pair-note{font-size:11px;color:var(--muted);margin-top:7px}
+.pair-note b{color:var(--copper);font-family:'IBM Plex Mono',monospace;font-weight:600}
+/* rails */
+.rails{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px}
+.rail{border:1px solid var(--line);border-radius:8px;padding:7px 9px}
+.rail .nm{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}
+.rail .vw{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.rail.on{border-left:3px solid var(--good)}
+.rail.off{border-left:3px solid var(--line);opacity:.6}
+.rail.fault{border-left:3px solid var(--bad);background:var(--bad-soft)}
+.power-total{font-size:13px;margin-top:10px;color:var(--muted)}
+.power-total b{color:var(--ink);font-variant-numeric:tabular-nums}
+/* lane table */
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:12.5px}
+th{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);text-align:left;padding:5px 8px;border-bottom:2px solid var(--line)}
+td{padding:5px 8px;border-bottom:1px solid var(--line);font-family:'IBM Plex Mono',monospace;font-size:12px}
+tr:last-child td{border-bottom:none}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:baseline}
+.dot.g{background:var(--good)} .dot.r{background:var(--bad)} .dot.grey{background:var(--line)}
+.empty{color:var(--muted);font-size:13px;padding:8px 0}
+/* log */
+#log-card{margin:0 22px 24px}
+#log-entries{max-height:300px;overflow:auto}
+.log-entry{border-top:1px solid var(--line-strong);padding:3px 0;font-size:12px}
+.log-line{font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;line-height:1.5}
+.log-entry.open .log-line{white-space:normal;word-break:break-all}
+.log-ts{color:var(--muted);margin-right:10px}
+.log-dur{color:var(--muted);font-size:11px;margin-right:10px;display:inline-block;min-width:44px;text-align:right}
+.log-cmd{color:var(--copper)}
+.log-group{border-top:1px solid var(--line-strong);padding:3px 0;font-size:12px}
+.log-group .group-line .log-cmd{color:var(--muted)}
+.log-caret{color:var(--muted);margin-right:8px;display:inline-block;width:10px}
+.log-group-body{margin-left:22px;border-left:2px solid var(--line);padding-left:10px}
+.log-entry.nested{border-top:1px dashed var(--line)}
+.log-entry.nested:first-child{border-top:none}
+.log-entry.query .log-cmd{color:var(--muted);opacity:.75}   /* read-only display/query commands */
+.log-entry.query .log-ts,.log-entry.query .log-dur{opacity:.6}
+.ber-ctl{display:inline-flex;align-items:center;gap:3px}
+.mini-num{width:52px;font-size:11px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;background:var(--code-bg);color:inherit;font-family:'IBM Plex Mono',monospace}
+.unit{font-size:11px;color:var(--muted)}
+.log-out{display:none;white-space:pre;overflow-x:auto;background:var(--code-bg);
+  border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:6px;
+  font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.45}
+.log-entry.open .log-out{display:block}
+.src-fixture{color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1>CSAK Web Bench</h1>
+  <span id="conn" class="pill">connecting…</span>
+  <button id="arp-fix" class="mini" style="display:none"
+    title="sudo arp -d — clears the stale macOS ARP entry that blackholes IPv4 to the board after a hard power cycle">Fix ARP</button>
+  <span id="server" class="pill mono"></span>
+  <span id="power-pill" class="pill mono"></span>
+  <span class="spacer"></span>
+  <button id="pwr-on" class="primary" title="ps2 -load CSAK — sequenced rail power-up">DUT Power ON</button>
+  <button id="pwr-off" class="danger" title="ps2 -seq-off — sequenced rail power-down">DUT Power OFF</button>
+  <label class="auto"><input type="checkbox" id="auto"> auto-refresh 15 s</label>
+  <button id="refresh">Refresh all</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card" id="board-card">
+      <h2>Board map <span class="hdr-extra" id="chip-name"></span></h2>
+      <div id="board"></div>
+    </section>
+
+  </div>
+
+  <section class="card" id="detail-card">
+    <div class="die-tabs" id="detail-tabs">
+      <button class="die-tab active" id="tab-lanes" onclick="setPane('lanes')">Lane detail<span class="die-tab-sub mono" id="sel-octal">no octal selected</span></button>
+      <button class="die-tab" id="tab-rails" onclick="setPane('rails')">Power rails<span class="die-tab-sub" id="rail-summary">—</span></button>
+      <button class="die-tab" id="tab-xt" onclick="setPane('xt')">Crosstalk<span class="die-tab-sub" id="xt-summary">single-lane vs all-on BER</span></button>
+    </div>
+    <div id="pane-lanes" class="pane">
+      <div class="octal-actions" id="octal-actions"></div>
+      <div id="lane-detail"><div class="empty">Select an octal on the board map.</div></div>
+      <div id="action-out"></div>
+    </div>
+    <div id="pane-rails" class="pane" hidden>
+      <div class="rails" id="rails"><div class="empty">No data yet.</div></div>
+      <div class="power-total" id="power-total"></div>
+    </div>
+    <div id="pane-xt" class="pane" hidden>
+      <p class="xt-intro">A/B test on one <b>victim lane</b>: first the other 7 lanes on <b>both</b> octals are parked
+        (RX+TX datapath reset) and N timed BER rounds run on the victim alone; then all 8 lanes are released and the same
+        rounds are repeated. Error counts, SNR and eye margins are compared in a PDF report with dashboard snapshots.</p>
+      <form class="xt-form" id="xt-form" onsubmit="startCrosstalk(event)">
+        <label>Victim octal <select id="xt-octal"></select></label>
+        <label>Lane <select id="xt-lane"></select></label>
+        <label>Rounds <input type="number" id="xt-rounds" min="1" max="50" value="3"></label>
+        <label>Dwell (s) <input type="number" id="xt-dwell" min="1" max="600" value="10"></label>
+        <label class="chk"><input type="checkbox" id="xt-shots" checked> dashboard screenshots</label>
+        <button type="submit" class="primary" id="xt-run">Run crosstalk test</button>
+        <span class="xt-est" id="xt-est"></span>
+      </form>
+      <div id="xt-progress" hidden>
+        <div class="xt-bar"><div class="xt-bar-fill" id="xt-bar"></div></div>
+        <div class="xt-msg mono" id="xt-msg"></div>
+        <table class="xt-live" id="xt-live"></table>
+      </div>
+      <div id="xt-result"></div>
+      <h3 class="xt-h3">Previous runs</h3>
+      <div id="xt-history"><div class="empty">none yet</div></div>
+    </div>
+  </section>
+</main>
+
+<section class="card" id="log-card">
+  <h2>Command log <span class="hdr-extra" style="font-size:11px"><span id="log-count"></span>every aapl invocation this session — grey = read-only query, copper = action; click a command to see raw output
+    <button class="mini" id="log-clear" title="Discard all entries in the command log (board state is untouched)">Clear all</button></span></h2>
+  <div id="log-entries"><div class="empty">Nothing run yet.</div></div>
+</section>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let PROFILE = null, DEVICE = null, SELECTED = null;
+
+const fmt = {
+  w: x => x == null ? "—" : x.toFixed(2) + " W",
+  v: x => x.toFixed(3) + " V",
+  a: (x, b) => (b ? "<" : "") + x.toFixed(3) + " A",
+};
+
+async function jget(url){ const r = await fetch(url); return r.json(); }
+
+let OFFLINE = true;
+
+// POST an action; show busy state on the button, result in #action-out, then refresh.
+async function act(btn, url, label){
+  const out = $("action-out");
+  btn.classList.add("busy");
+  const oldText = btn.textContent;
+  btn.textContent = label + "…";
+  out.style.display = "block"; out.className = ""; out.textContent = `${label} — running…`;
+  try {
+    const r = await fetch(url, {method:"POST"});
+    const d = await r.json();
+    if (d.ok){
+      out.className = "";
+      out.textContent = `$ ${d.cmd}\n` + (d.output || "").trim().split("\n").slice(-12).join("\n");
+    } else {
+      out.className = "err";
+      out.textContent = `${label} refused: ${d.error}`;
+    }
+  } catch(e){
+    out.className = "err"; out.textContent = `${label} failed: ${e}`;
+  }
+  btn.classList.remove("busy"); btn.textContent = oldText;
+  await refreshAll();
+  followUpLocks();
+}
+
+// Two-step confirm, used only for DUT power on/off and octal POR reset
+// (per-lane start/stop/tx buttons fire immediately — they are cheap to undo).
+function confirmThen(btn, label, fn){
+  if (btn.dataset.armed === "1"){
+    btn.dataset.armed = ""; btn.classList.remove("confirming");
+    btn.textContent = btn.dataset.orig;
+    fn();
+    return;
+  }
+  btn.dataset.armed = "1"; btn.dataset.orig = btn.textContent;
+  btn.classList.add("confirming"); btn.textContent = "Click again to confirm";
+  setTimeout(() => {
+    if (btn.dataset.armed === "1"){
+      btn.dataset.armed = ""; btn.classList.remove("confirming");
+      btn.textContent = btn.dataset.orig;
+    }
+  }, 4000);
+}
+
+function octalState(addr){
+  if (!DEVICE) return {};
+  for (const chip of DEVICE.chips)
+    for (const s of chip.serdes)
+      if (s.addr === addr) return s;
+  return {};
+}
+
+const LAST_LANES = {};   // addr -> last lane rows, so tab switches can recolor strips without a board read
+function refreshStrip(addr){
+  const strip = $("strip-" + cssId(addr)), lanes = LAST_LANES[addr];
+  if (!strip || !lanes) return;
+  lanes.forEach(l => {
+    const cell = strip.children[l.lane];
+    if (!cell) return;
+    const lk = l.pmd_lock ?? l.locked;
+    cell.className = "lane-cell " + (lk ? "locked" : l.stopped ? "stopped" : "unlocked");
+    cell.title = `lane ${l.lane}: ${lk ? "locked" : l.stopped ? "stopped (datapath held in reset)" : l.signal_detect === false ? "no signal" : "no lock"}`;
+  });
+  applyXtOverlay(addr);
+}
+// Crosstalk-run overlay on the board map: the script publishes each lane's
+// role (parked / victim / running) in its status.json while it runs.
+let XT_OVERLAY = null;   // {phase, measuring, lane_states:{octal:{lane:role}}} or null
+function applyXtOverlay(addr){
+  const strip = $("strip-" + cssId(addr));
+  if (!strip) return;
+  const roles = XT_OVERLAY && XT_OVERLAY.lane_states && XT_OVERLAY.lane_states[addr];
+  for (let i = 0; i < strip.children.length; i++){
+    const cell = strip.children[i];
+    cell.classList.remove("xt-parked", "xt-victim", "xt-measuring");
+    if (!roles) continue;
+    const role = roles[String(i)];
+    if (role === "parked"){ cell.classList.add("xt-parked"); cell.title = `lane ${i}: parked by crosstalk test (datapath reset)`; }
+    else if (role === "victim"){
+      cell.classList.add("xt-victim");
+      cell.title = `lane ${i}: crosstalk VICTIM lane (${XT_OVERLAY.phase})`;
+      const m = XT_OVERLAY.measuring || "";
+      if (m === `${addr}.${i}` || m === `${addr}.*`) cell.classList.add("xt-measuring");
+    }
+  }
+}
+let ACTIVE_DIE = 0;   // index into PROFILE.dies shown in the Board map
+try { const v = parseInt(localStorage.getItem("csak.activeDie"), 10); if (!isNaN(v)) ACTIVE_DIE = v; } catch(e){}
+function dieIndexOf(addr){
+  for (let i = 0; i < PROFILE.dies.length; i++)
+    if (PROFILE.dies[i].octals.some(o => o.addr === addr)) return i;
+  return -1;
+}
+function setActiveDie(i){
+  ACTIVE_DIE = i;
+  try { localStorage.setItem("csak.activeDie", String(i)); } catch(e){}
+  renderBoard();
+  refreshLocks();
+}
+// Refresh the lane strips of every firmware-running octal on the visible die
+// (one ~0.1 s PMD-lock read each) so partner octals update without a click.
+async function refreshLocks(includeSelected = false){
+  if (OFFLINE || !PROFILE || !DEVICE) return;
+  const die = PROFILE.dies[ACTIVE_DIE];
+  if (!die) return;
+  const addrs = die.octals.filter(o => o.usable && octalState(o.addr).running && (includeSelected || o.addr !== SELECTED)).map(o => o.addr);
+  if (!addrs.length) return;
+  try {
+    const d = await jget("/api/locks?addrs=" + encodeURIComponent(addrs.join(",")));
+    for (const addr of addrs){
+      const locks = d[addr];
+      if (!locks || locks.error) continue;
+      const prev = Object.fromEntries((LAST_LANES[addr] || []).map(l => [l.lane, l]));
+      // merge: keep stopped/signal info from the last full read, update lock
+      LAST_LANES[addr] = Object.entries(locks).map(([lane, lk]) => ({...(prev[+lane] || {}), lane: +lane, pmd_lock: lk}));
+      refreshStrip(addr);
+      if (addr === SELECTED) refreshLockCells(addr);
+    }
+  } catch(e){}
+}
+// Update the "pmd lock" column of the lane table from cached lock data
+// (lanes that are stopped keep their "stopped" text).
+function refreshLockCells(addr){
+  for (const l of LAST_LANES[addr] || []){
+    const cell = $("lock-" + cssId(addr) + "-" + l.lane);
+    if (!cell || l.stopped) continue;
+    if (l.pmd_lock) cell.innerHTML = `<span class="dot g"></span> locked`;
+    else if (cell.textContent.includes("locked") && !cell.textContent.includes("no")) cell.innerHTML = `<span class="dot r"></span> no lock`;
+  }
+}
+// After an action, lanes take a few seconds to train and lock; poll the lock
+// state a few times so the map turns green without a manual click.
+let followTimers = [];
+function followUpLocks(){
+  followTimers.forEach(clearTimeout); followTimers = [];
+  for (const ms of [1500, 4000, 8000, 15000, 30000])
+    followTimers.push(setTimeout(() => refreshLocks(true), ms));
+}
+function renderBoard(){
+  const el = $("board");
+  el.innerHTML = "";
+  if (ACTIVE_DIE < 0 || ACTIVE_DIE >= PROFILE.dies.length) ACTIVE_DIE = 0;
+  const tabs = document.createElement("div");
+  tabs.className = "die-tabs";
+  PROFILE.dies.forEach((die, i) => {
+    const b = document.createElement("button");
+    b.className = "die-tab" + (i === ACTIVE_DIE ? " active" : "");
+    const nfw = die.octals.filter(o => octalState(o.addr).fw_loaded).length;
+    b.innerHTML = `die ${die.name}<span class="die-tab-sub">${die.role}${nfw ? ` · ${nfw} fw` : ""}</span>`;
+    b.onclick = () => setActiveDie(i);
+    tabs.appendChild(b);
+  });
+  el.appendChild(tabs);
+  for (const [di, die] of PROFILE.dies.entries()){
+    if (di !== ACTIVE_DIE) continue;
+    const d = document.createElement("div");
+    d.className = "die";
+    const grid = document.createElement("div");
+    grid.className = "octals";
+    for (const o of die.octals){
+      const st = octalState(o.addr);
+      const t = document.createElement("div");
+      t.className = "octal" + (o.usable ? "" : " unusable") + (SELECTED === o.addr ? " selected" : "");
+      const badges = [];
+      if (st.fw_loaded) badges.push(`<span class="badge fw">fw ${ (st.firmware||"").replace("0x","") }</span>`);
+      else if (DEVICE) badges.push(`<span class="badge">no fw</span>`);
+      if (st.running) badges.push(`<span class="badge run">µC on</span>`);
+      if (st.temp_c != null) badges.push(`<span class="badge temp">${st.temp_c.toFixed(1)}°C</span>`);
+      if (XT_OVERLAY && XT_OVERLAY.lane_states && XT_OVERLAY.lane_states[o.addr])
+        badges.push(`<span class="badge xt">crosstalk · ${XT_OVERLAY.phase}</span>`);
+      const pair = o.partner && o.partner !== "self"
+        ? `<div class="pair-note">↔ pairs with <b>${o.partner}</b> · ${o.channel}</div>`
+        : `<div class="pair-note">${o.channel}</div>`;
+      t.innerHTML = `
+        <div class="octal-top"><span class="octal-addr">${o.addr}</span>
+          <span class="octal-conn">${o.slice} · ${o.connector}</span></div>
+        <div class="octal-badges">${badges.join("")}</div>
+        <div class="lanes-strip" id="strip-${cssId(o.addr)}">
+          ${[...Array(8).keys()].map(i=>`<div class="lane-cell" title="lane ${i}">${i}</div>`).join("")}
+        </div>
+        ${pair}`;
+      if (o.usable) t.onclick = () => selectOctal(o.addr);
+      else t.title = o.notes;
+      grid.appendChild(t);
+    }
+    d.appendChild(grid);
+    el.appendChild(d);
+    for (const o of die.octals) refreshStrip(o.addr);
+  }
+}
+function cssId(addr){ return addr.replace(/[:]/g,"_"); }
+
+function renderOctalActions(addr){
+  const el = $("octal-actions");
+  if (!addr){ el.innerHTML = ""; return; }
+  const st = octalState(addr);
+  const dis = OFFLINE ? "disabled title='board unreachable — demo mode is read-only'" : "";
+  el.innerHTML = `
+    <button class="mini" id="act-fw" ${dis}>1 · Upload FW</button>
+    <button class="mini" id="act-core" ${dis} ${!st.fw_loaded && !OFFLINE ? "" : ""}>2 · Core-init</button>
+    <button class="mini" id="act-lanes" ${dis} title="serdes-init -lane-init … -addr ${addr}.* — runs Core-init first automatically if the core PLL is not initialised yet">3 · Lane-init (all)</button>
+    <span class="ber-ctl"><button class="mini" id="act-ber" ${dis} title="serdes -ber -ber-dwell &lt;s&gt; -error-reset — reset counters, dwell, report per lane">4 · BER</button>
+      <input class="mini-num" id="ber-dwell" type="number" min="1" max="600" step="1" value="${BER_DWELL}" ${OFFLINE ? "disabled" : ""} title="BER dwell time in seconds (1–600)"><span class="unit">s</span></span>
+    <span class="spacer"></span>
+    <button class="mini danger" id="act-reset" ${dis} title="blackhawk -toggle-POR -addr ${addr} — pulses this octal's power-on reset: firmware and all lane state are wiped, back to step 1">Reset octal (POR)</button>`;
+  if (OFFLINE) return;
+  $("act-fw").onclick   = e => act(e.target, "/api/octal/fw-upload?addr=" + encodeURIComponent(addr), "fw upload " + addr);
+  $("act-core").onclick = e => act(e.target, "/api/octal/core-init?addr=" + encodeURIComponent(addr), "core-init " + addr);
+  $("act-lanes").onclick= e => act(e.target, "/api/octal/lane-init?addr=" + encodeURIComponent(addr), "lane-init " + addr + ".*");
+  $("ber-dwell").onchange = e => { BER_DWELL = clampDwell(e.target.value); e.target.value = BER_DWELL; };
+  $("act-ber").onclick  = e => runBer(e.target, addr, clampDwell($("ber-dwell").value));
+  $("act-reset").onclick= e => confirmThen(e.target, "POR reset",
+    () => act(e.target, "/api/octal/por-reset?addr=" + encodeURIComponent(addr), "POR reset " + addr));
+}
+
+// Timed BER measurement: resets error counters, dwells, updates the BER
+// column in the lane table and prints a per-lane summary.
+let BER_DWELL = 10;   // seconds; editable next to the BER button
+function clampDwell(v){ v = parseInt(v, 10); return isNaN(v) ? 10 : Math.min(600, Math.max(1, v)); }
+async function runBer(btn, addr, dwell){
+  dwell = clampDwell(dwell ?? BER_DWELL);
+  const out = $("action-out");
+  btn.classList.add("busy");
+  const oldText = btn.textContent;
+  btn.textContent = "BER running…";
+  out.style.display = "block"; out.className = "";
+  out.textContent = `ber ${addr}.* — counters reset, dwelling ${dwell} s…`;
+  try {
+    const d = await jget("/api/ber?addr=" + encodeURIComponent(addr) + "&dwell=" + dwell);
+    if (d.error || !d.lanes || !d.lanes.length){
+      out.className = "err";
+      out.textContent = "ber failed: " + (d.error || "no lanes reported — run lane-init first?");
+    } else {
+      const hdr = `PRBS BER @ ${d.lanes[0].rate_gbps} Gb/s · dwell ~${d.lanes[0].dwell_s.toFixed(1)} s`;
+      out.textContent = hdr + "\n" + d.lanes.map(l =>
+        `${l.addr.padEnd(8)} ${String(l.errors).padStart(6)} err / ${(l.bits/1e12).toFixed(1)} Tb   BER ${l.ber_is_bound ? "<" : " "}${l.ber.toExponential(2)}`
+      ).join("\n");
+      for (const l of d.lanes){
+        const cell = $("ber-" + cssId(addr) + "-" + l.addr.split(".").pop());
+        if (cell) cell.textContent = (l.ber_is_bound ? "<" : "") + l.ber.toExponential(2);
+      }
+    }
+  } catch(e){
+    out.className = "err"; out.textContent = "ber failed: " + e;
+  }
+  btn.classList.remove("busy"); btn.textContent = oldText;
+  refreshLog();
+}
+
+let ACTIVE_PANE = "lanes";
+try { const v = localStorage.getItem("csak.pane"); if (v === "rails" || v === "lanes" || v === "xt") ACTIVE_PANE = v; } catch(e){}
+function setPane(p){
+  ACTIVE_PANE = p;
+  try { localStorage.setItem("csak.pane", p); } catch(e){}
+  $("pane-lanes").hidden = p !== "lanes";
+  $("pane-rails").hidden = p !== "rails";
+  $("pane-xt").hidden = p !== "xt";
+  $("tab-lanes").classList.toggle("active", p === "lanes");
+  $("tab-rails").classList.toggle("active", p === "rails");
+  $("tab-xt").classList.toggle("active", p === "xt");
+  if (p === "xt") initCrosstalkPane();
+}
+async function selectOctal(addr){
+  SELECTED = addr;
+  if (ACTIVE_PANE !== "xt") setPane("lanes");
+  const di = dieIndexOf(addr);
+  if (di >= 0 && di !== ACTIVE_DIE){ ACTIVE_DIE = di; try { localStorage.setItem("csak.activeDie", String(di)); } catch(e){} }
+  renderBoard();
+  renderOctalActions(addr);
+  $("sel-octal").textContent = addr + " …";
+  $("lane-detail").innerHTML = `<div class="empty">Reading lane state (two aapl calls)…</div>`;
+  const d = await jget("/api/lanes?addr=" + encodeURIComponent(addr));
+  if (d.error){ $("lane-detail").innerHTML = `<div class="empty">${d.error}</div>`; return; }
+  $("sel-octal").textContent = `${addr} · ucode ${d.ucode ?? "?"} · API ${d.api ?? "?"}`;
+  const dis = OFFLINE ? "disabled" : "";
+  const partner = (PROFILE.dies.flatMap(x => x.octals).find(o => o.addr === addr) || {}).partner;
+  // Lock cell explains WHY a lane is not locked: its own datapath is held in
+  // reset ("stopped"), or there is no incoming signal (partner lane stopped /
+  // tx off / cable), or signal is present but the RX has not locked.
+  const lockCell = l => {
+    const lk = l.pmd_lock ?? l.locked;
+    if (lk) return `<span class="dot g"></span> locked`;
+    if (l.stopped) return `<span class="dot grey"></span> stopped`;
+    if (l.signal_detect === false)
+      return `<span class="dot r"></span> no signal<span class="hint" title="signal detect = 0: nothing arriving on RX — partner lane stopped or tx off, or cable">${partner && partner !== "self" ? ` · from ${partner}?` : ""}</span>`;
+    return `<span class="dot r"></span> no lock`;
+  };
+  const rows = d.lanes.map(l => `
+    <tr class="${l.stopped ? "lane-stopped" : ""}">
+      <td>${addr}.${l.lane}</td>
+      <td id="lock-${cssId(addr)}-${l.lane}">${lockCell(l)}</td>
+      <td>${l.tx_pol ?? ""}${l.rx_pol ?? ""}${l.rx_pol === "-" ? " ±" : ""}</td>
+      <td>${l.snr_db != null ? l.snr_db.toFixed(2) : "—"}</td>
+      <td>${l.eye ? l.eye.join("/") : "—"}</td>
+      <td id="ber-${cssId(addr)}-${l.lane}">${l.ber_is_bound ? "<" : ""}${l.ber ?? "—"}</td>
+      <td>${l.link_time_ms != null ? (l.link_time_ms/1000).toFixed(1)+" s" : "—"}</td>
+      <td>
+        ${l.tx_disabled
+          ? `<span class="dot grey"></span> off
+             <button class="mini primary" ${dis} title="serdes -tx-output-enable 1 -addr ${addr}.${l.lane} — TX output is currently disabled; enable it"
+               onclick="act(this, '/api/lane/tx-output?addr=${encodeURIComponent(addr)}&lane=${l.lane}&enable=1', 'tx on ${addr}.${l.lane}')">tx on</button>`
+          : `<span class="dot g"></span> on
+             <button class="mini danger" ${dis} title="serdes -tx-output-enable 0 -addr ${addr}.${l.lane} — TX output is currently enabled; disable it (datapath keeps running)"
+               onclick="act(this, '/api/lane/tx-output?addr=${encodeURIComponent(addr)}&lane=${l.lane}&enable=0', 'tx off ${addr}.${l.lane}')">tx off</button>`}
+      </td>
+      <td>
+        ${l.stopped
+          ? `<button class="mini primary" ${dis} title="serdes -lane-dp-reset 0 -addr ${addr}.${l.lane} — resume: release the datapath reset and continue with the lane's existing configuration (RST=${l.dp_reset})"
+               onclick="act(this, '/api/lane/dp-reset?addr=${encodeURIComponent(addr)}&lane=${l.lane}&assert=0', 'start ${addr}.${l.lane}')">start</button>`
+          : `<button class="mini danger" ${dis} title="serdes -lane-dp-reset 1 -addr ${addr}.${l.lane} — hold RX+TX datapath in reset (config and firmware kept)"
+               onclick="act(this, '/api/lane/dp-reset?addr=${encodeURIComponent(addr)}&lane=${l.lane}&assert=1', 'stop ${addr}.${l.lane}')">stop</button>`}
+        <button class="mini" ${dis} title="serdes-init -lane-init -addr ${addr}.${l.lane} — reconfigure and re-tune this lane from scratch (PRBS, link training, polarity); works whether the lane is running or stopped"
+          onclick="act(this, '/api/octal/lane-init?addr=${encodeURIComponent(addr)}&lane=${l.lane}', 'lane-init ${addr}.${l.lane}')">re-init</button>
+      </td>
+    </tr>`).join("");
+  $("lane-detail").innerHTML = `
+    <table><thead><tr>
+      <th>lane</th><th>pmd lock</th><th>pol tx/rx</th><th>snr dB</th>
+      <th>eye u/m/l</th><th>ber</th><th>link time</th><th>tx output</th><th>lane</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  LAST_LANES[addr] = d.lanes;
+  refreshStrip(addr);
+  refreshLog();
+}
+
+function renderRails(p){
+  $("rails").innerHTML = p.rails.map(r => `
+    <div class="rail ${r.fault ? "fault" : r.on ? "on" : "off"}">
+      <div class="nm">${r.name}</div>
+      <div class="vw">${fmt.v(r.meas_v)}</div>
+      <div class="vw">${fmt.a(r.meas_a, r.meas_a_is_bound)}</div>
+      <div class="vw">${r.watts.toFixed(2)} W</div>
+    </div>`).join("");
+  $("rail-summary").textContent = `${p.rails_on}/${p.rails.length} ON` + (p.any_fault ? " · FAULT" : "");
+  $("power-total").innerHTML =
+    `Total DUT power <b>${fmt.w(p.total_watts)}</b> · input ${p.input.volts ?? "?"} V / ${p.input.amps ?? "?"} A · serial ${p.serial ?? "?"}`;
+  $("power-pill").textContent = fmt.w(p.total_watts);
+}
+
+// Command log. Actions are one line each. Runs of consecutive read-only
+// queries (display-lane, pmd-lock, ps2, device-info polling…) are compressed
+// into one summary line; click it to unfold the individual queries, click a
+// query or action line to see its raw output.
+const OPEN_GROUPS = new Set();      // group keys the user has unfolded
+function shortCmd(cmd){
+  // "aapl condor -display-lane -a :8.* -server …" -> "display-lane :8.*"
+  const t = cmd.replace(/\s-server\s+\S+/, "").split(/\s+/).slice(1);
+  const skip = new Set(["-sbus-rings", "-v", "-a", "-addr"]);   // option flags that carry a value, not the verb
+  let sub = null;
+  for (let i = 0; i < t.length; i++){
+    if (skip.has(t[i])){ i++; continue; }
+    if (t[i].startsWith("-")){ sub = t[i]; break; }
+  }
+  const verb = (t[0] === "ps2" || t[0] === "device-info" || !sub) ? t[0] : sub.replace(/^-+/, "");
+  const a = t.findIndex(x => x === "-a" || x === "-addr");
+  return (verb || "") + (a >= 0 && t[a+1] ? " " + t[a+1] : "");
+}
+function logLine(e, extraCls = ""){
+  const esc = t => t.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+  return `
+    <div class="log-entry ${e.kind === "query" ? "query" : ""} ${extraCls}">
+      <div class="log-line" onclick="this.parentElement.classList.toggle('open')"><span class="log-ts">${e.ts}</span><span class="log-dur">${e.duration_s}s</span>${e.source === "fixture" ? '<span class="src-fixture">fixture </span>' : ""}<span class="log-cmd">${esc(e.cmd)}</span></div>
+      <div class="log-out">${esc(e.output)}</div>
+    </div>`;
+}
+async function refreshLog(){
+  const d = await jget("/api/log");
+  const el = $("log-entries");
+  $("log-count").textContent = d.entries.length ? `${d.entries.length} entr${d.entries.length === 1 ? "y" : "ies"} · ` : "";
+  $("log-clear").disabled = !d.entries.length;
+  if (!d.entries.length){ el.innerHTML = `<div class="empty">Nothing run yet.</div>`; return; }
+  const entries = d.entries.slice().reverse();      // newest first
+  const html = [];
+  for (let i = 0; i < entries.length; ){
+    const e = entries[i];
+    if (e.kind !== "query"){ html.push(logLine(e)); i++; continue; }
+    let j = i;
+    while (j < entries.length && entries[j].kind === "query") j++;
+    const run = entries.slice(i, j);
+    if (run.length === 1){ html.push(logLine(e)); i = j; continue; }
+    const key = run[run.length-1].ts + "|" + run[0].ts + "|" + run.length;
+    const open = OPEN_GROUPS.has(key);
+    const counts = {};
+    for (const q of run){ const s = shortCmd(q.cmd).split(" ")[0]; counts[s] = (counts[s] || 0) + 1; }
+    const summary = Object.entries(counts).map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join(", ");
+    const secs = run.reduce((s, q) => s + (q.duration_s || 0), 0).toFixed(1);
+    html.push(`
+    <div class="log-group ${open ? "open" : ""}" data-key="${key}">
+      <div class="log-line group-line" onclick="toggleGroup(this.parentElement)"><span class="log-ts">${run[run.length-1].ts}–${run[0].ts}</span><span class="log-dur">${secs}s</span><span class="log-caret">${open ? "▾" : "▸"}</span><span class="log-cmd">${run.length} queries · ${summary}</span></div>
+      <div class="log-group-body">${open ? run.map(q => logLine(q, "nested")).join("") : ""}</div>
+    </div>`);
+    i = j;
+  }
+  el.innerHTML = html.join("");
+}
+function toggleGroup(g){
+  const key = g.dataset.key;
+  if (OPEN_GROUPS.has(key)) OPEN_GROUPS.delete(key); else OPEN_GROUPS.add(key);
+  refreshLog();
+}
+
+function applyHealth(h){
+  OFFLINE = h.offline_demo;
+  const conn = $("conn");
+  conn.textContent = OFFLINE ? "OFFLINE DEMO — showing captured data" : "LIVE";
+  conn.className = "pill " + (OFFLINE ? "demo" : "live");
+  $("server").textContent = h.server;
+  for (const id of ["pwr-on", "pwr-off"]){
+    $(id).disabled = OFFLINE;
+    $(id).title = OFFLINE ? "board unreachable — demo mode is read-only" : $(id).title;
+  }
+  $("arp-fix").style.display = OFFLINE ? "" : "none";
+}
+
+// Background health watchdog: cheap TCP-probe poll (no aapl calls) so the UI
+// recovers to LIVE by itself when the board comes back after a power cycle.
+setInterval(async () => {
+  try {
+    const h = await jget("/api/health");
+    const was = OFFLINE;
+    applyHealth(h);
+    if (was && !OFFLINE) refreshAll();   // board just came back: repaint everything
+  } catch(e){ /* webui server itself unreachable; leave state as-is */ }
+}, 5000);
+
+async function refreshAll(){
+  applyHealth(await jget("/api/health"));
+  if (SELECTED) renderOctalActions(SELECTED);
+  try { renderRails(await jget("/api/power")); } catch(e){}
+  try { DEVICE = await jget("/api/device"); } catch(e){}
+  if (DEVICE && DEVICE.chips.length) $("chip-name").textContent =
+    `${DEVICE.chips[0].chip_name ?? ""} · ${DEVICE.chips[0].jtag_id ?? ""}`;
+  renderBoard();
+  refreshLocks();
+  if (SELECTED) selectOctal(SELECTED); else refreshLog();
+}
+
+$("arp-fix").onclick = async e => {
+  const btn = e.target, out = $("action-out");
+  btn.classList.add("busy");
+  out.style.display = "block"; out.className = ""; out.textContent = "sudo arp -d — clearing stale entry…";
+  try {
+    const d = await (await fetch("/api/arp-fix", {method:"POST"})).json();
+    out.className = d.ok ? "" : "err";
+    out.textContent = d.ok ? d.output : d.error;
+  } catch(err){
+    out.className = "err"; out.textContent = "arp-fix failed: " + err;
+  }
+  btn.classList.remove("busy");
+  refreshLog();
+};
+
+$("pwr-on").onclick = e =>
+  confirmThen(e.target, "power on", () => act(e.target, "/api/power/on", "DUT power ON (ps2 -load CSAK)"));
+$("pwr-off").onclick = e =>
+  confirmThen(e.target, "power off", () => act(e.target, "/api/power/off", "DUT power OFF (ps2 -seq-off)"));
+
+let timer = null;
+$("auto").onchange = e => {
+  if (e.target.checked) timer = setInterval(refreshAll, 15000);
+  else { clearInterval(timer); timer = null; }
+};
+$("refresh").onclick = refreshAll;
+$("log-clear").onclick = async e => {
+  e.target.disabled = true;
+  try { await fetch("/api/log/clear", {method: "POST"}); } catch(err){}
+  e.target.disabled = false;
+  refreshLog();
+};
+
+// URL parameters (used by crosstalk.py for headless screenshots):
+//   ?octal=:8   select that octal on load      ?pane=lanes|rails|xt   open that tab
+const URLQ = new URLSearchParams(location.search);
+(async () => {
+  if (["lanes", "rails", "xt"].includes(URLQ.get("pane"))) ACTIVE_PANE = URLQ.get("pane");
+  setPane(ACTIVE_PANE);
+  PROFILE = await jget("/api/profile");
+  renderBoard();
+  if (URLQ.get("octal")){ SELECTED = URLQ.get("octal"); const di = dieIndexOf(SELECTED); if (di >= 0) ACTIVE_DIE = di; }
+  await refreshAll();
+  pollCrosstalk();          // overlay an already-running crosstalk test (CLI or other tab)
+})();
+
+// ---------------------------------------------------------------------------
+// Crosstalk pane
+// ---------------------------------------------------------------------------
+let XT_TIMER = null, XT_INIT = false, XT_TICK = 0;
+function initCrosstalkPane(){
+  if (!PROFILE) return;
+  if (!XT_INIT){
+    XT_INIT = true;
+    const sel = $("xt-octal");
+    sel.innerHTML = PROFILE.dies.flatMap(d => d.octals).filter(o => o.usable && o.partner)
+      .map(o => `<option value="${o.addr}">${o.addr} ${o.partner === "self" ? "(loopback)" : "↔ " + o.partner} · ${o.channel}</option>`).join("");
+    $("xt-lane").innerHTML = [...Array(8).keys()].map(i => `<option value="${i}">${i}</option>`).join("");
+    if (SELECTED && [...sel.options].some(o => o.value === SELECTED)) sel.value = SELECTED;
+    for (const id of ["xt-rounds", "xt-dwell"]) $(id).oninput = xtEstimate;
+    xtEstimate();
+  }
+  pollCrosstalk();
+  loadCrosstalkHistory();
+}
+function xtEstimate(){
+  const n = +$("xt-rounds").value || 1, t = +$("xt-dwell").value || 1;
+  const sides = 2, overhead = 60;                       // lock waits, snapshots, screenshots
+  const s = 2 * n * t * sides + overhead;
+  $("xt-est").textContent = `≈ ${Math.round(s/60)} min (${2*n} rounds × ${t} s × 2 ends + setup)`;
+}
+async function startCrosstalk(ev){
+  ev.preventDefault();
+  if (OFFLINE){ alert("board unreachable — demo mode is read-only"); return; }
+  const q = new URLSearchParams({addr: $("xt-octal").value, lane: $("xt-lane").value,
+    rounds: $("xt-rounds").value, dwell: $("xt-dwell").value, screenshots: $("xt-shots").checked ? 1 : 0});
+  $("xt-run").disabled = true;
+  $("xt-result").innerHTML = "";
+  const d = await (await fetch("/api/crosstalk/start?" + q, {method: "POST"})).json();
+  if (!d.ok){ $("xt-result").innerHTML = `<div class="err">${d.error}</div>`; $("xt-run").disabled = false; return; }
+  $("xt-progress").hidden = false;
+  pollCrosstalk();
+}
+async function pollCrosstalk(){
+  clearTimeout(XT_TIMER);
+  let st;
+  try { st = await jget("/api/crosstalk/status"); } catch(e){ return; }
+  const running = st.running;
+  // board-map overlay + periodic lock refresh of the octals under test
+  const prevPhase = XT_OVERLAY && XT_OVERLAY.phase;
+  if (running && st.lane_states){
+    XT_OVERLAY = {phase: st.phase, measuring: st.measuring, lane_states: st.lane_states};
+    if (prevPhase !== st.phase) renderBoard();          // badge text + strips
+    else for (const o of Object.keys(st.lane_states)) applyXtOverlay(o);
+    XT_TICK = (XT_TICK || 0) + 1;
+    if (XT_TICK % 5 === 0) refreshLocks(true);           // every ~10 s: lock colours
+    if (prevPhase && prevPhase !== st.phase && SELECTED && st.lane_states[SELECTED]) selectOctal(SELECTED);
+  } else if (XT_OVERLAY){
+    XT_OVERLAY = null;
+    renderBoard(); refreshLocks(true);
+    if (SELECTED) selectOctal(SELECTED);
+  }
+  $("xt-run").disabled = !!running;
+  $("xt-summary").textContent = running ? `running · ${st.phase} ${st.round ? st.round + "/" + st.rounds : ""}` : "single-lane vs all-on BER";
+  if (st.state === "idle"){ $("xt-progress").hidden = true; return; }
+  $("xt-progress").hidden = false;
+  $("xt-bar").style.width = (st.pct || 0) + "%";
+  $("xt-bar").className = "xt-bar-fill " + (st.state === "error" ? "bad" : st.state === "done" ? "good" : "");
+  $("xt-msg").textContent = `${st.result_dir} · ${st.phase} · ${st.message}`;
+  // live per-round table
+  const rd = st.rounds_done || [];
+  if (rd.length){
+    const sides = Object.keys(rd[0]).filter(k => k !== "phase" && k !== "round");
+    let html = `<tr><th>phase</th><th>round</th>${sides.map(s => `<th>${s} errors</th>`).join("")}</tr>`;
+    for (const r of rd) html += `<tr class="${r.phase}"><td>${r.phase}</td><td>${r.round}</td>${sides.map(s => `<td>${r[s]}</td>`).join("")}</tr>`;
+    $("xt-live").innerHTML = html;
+  }
+  if (st.state === "done"){
+    const f = st.files || {}, b = st.url_base;
+    const links = [["report.pdf", f.pdf], ["rounds.csv", f.csv], ["results.json", f.json], ["isolated.png", f.ui_isolated], ["all-on.png", f.ui_all_on]]
+      .filter(x => x[1]).map(x => `<a href="${b}${x[1]}" target="_blank">${x[0]}</a>`).join(" · ");
+    const verdicts = Object.entries((st.summary || {}).per_side || {}).map(([o, s]) => `<li><b>${o}.${st.cfg.lane}</b>: ${s.verdict}${s.snr_delta_db != null ? ` (SNR ${s.snr_delta_db >= 0 ? "+" : ""}${s.snr_delta_db} dB)` : ""}</li>`).join("");
+    $("xt-result").innerHTML = `<div class="xt-done"><b>Done.</b> ${links}<ul>${verdicts}</ul></div>`;
+    loadCrosstalkHistory();
+    refreshAll();
+  } else if (st.state === "error"){
+    $("xt-result").innerHTML = `<div class="err">${st.message}</div>`;
+    loadCrosstalkHistory();
+  }
+  if (running) XT_TIMER = setTimeout(pollCrosstalk, 2000);
+}
+async function loadCrosstalkHistory(){
+  const d = await jget("/api/crosstalk/list");
+  const el = $("xt-history");
+  if (!d.runs.length){ el.innerHTML = `<div class="empty">none yet</div>`; return; }
+  el.innerHTML = `<table class="xt-live"><tr><th>started</th><th>link</th><th>lane</th><th>rounds×dwell</th><th>state</th><th>files</th></tr>` +
+    d.runs.map(r => `<tr><td>${r.started ?? ""}</td><td>${r.octal ?? ""}${r.partner && r.partner !== "self" ? " ↔ " + r.partner : " (loop)"}</td><td>${r.lane ?? ""}</td><td>${r.rounds}×${r.dwell}s</td><td class="${r.state}">${r.state}</td>
+      <td>${r.has_pdf ? `<a href="/results/${r.dir}/report.pdf" target="_blank">pdf</a> · ` : ""}<a href="/results/${r.dir}/results.json" target="_blank">json</a></td></tr>`).join("") + `</table>`;
+}
+</script>
+</body>
+</html>

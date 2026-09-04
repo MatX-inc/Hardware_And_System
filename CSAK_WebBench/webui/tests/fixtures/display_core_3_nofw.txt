@@ -1,0 +1,11 @@
+ERROR:  ucode version of the current thread not matching with stored condor3_pc_info->ucode_version, Expected 0x0BADC0DE, but received 0x00000000.
+ERROR:blackhawk/condor3_pc/src/condor3_pc_diag.c->condor3_pc_display_diag_data_core() SerDes err_code = ERR_CODE_UCODE_VERIFY_FAIL : 15 2166
+Triage Info Below:
+Lane,       Core,  API_VER, UCODE_VER, Error
+   0,          3,  A004_1,     0_0, ERR_CODE_UCODE_VERIFY_FAIL
+ERROR:blackhawk/condor3_pc/src/condor3_pc_diag.c->condor3_pc_display_all_diag_data() SerDes err_code = ERR_CODE_UCODE_VERIFY_FAIL : 15 2128
+Triage Info Below:
+Lane,       Core,  API_VER, UCODE_VER, Error
+   0,          3,  A004_1,     0_0, ERR_CODE_UCODE_VERIFY_FAIL
+ERROR (14:29:44.163861 +0.000000 aapl_blackhawk_display_diag_data:1324): Error code = 15: ERR_CODE_UCODE_VERIFY_FAIL
+ERROR reported in aapl->return_code.

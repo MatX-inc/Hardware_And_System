@@ -1,0 +1,69 @@
+{
+  "board": "Broadcom CSAK APD0601 (Triple test chip)",
+  "server": "169.254.52.213",
+  "server_alias": "ps2-659D",
+  "aacs_port": 90,
+  "aapl_binary": "../../src/aapl",
+  "firmware_file": "../condor3_pc_ucode_image_D003_07.h",
+  "firmware_version": "D003_07",
+  "line_rate_gbps": 212.5,
+  "core_init": {
+    "refclk": "312.5e6",
+    "comclk": "156.25e6",
+    "divider": "170"
+  },
+  "lane_init_args": [
+    "-lane-init", "-no-hysteresis", "-osr", "osx1", "-prbs-mode", "PRBS31",
+    "-width-mode", "160", "-link-train", "-auto-polarity", "-restart-training",
+    "-encoding", "4", "-media-type", "1", "-txppm-offset", "0", "-elb"
+  ],
+  "dies": [
+    {
+      "die": 0,
+      "name": "S0",
+      "role": "connector-channel die",
+      "octals": [
+        {"addr": ":3",  "slice": "SD0", "connector": "OSFP",  "channel": "OSFP 0.5 m loopback (MR6)", "partner": null,  "usable": true,  "tx_lane_map": null,       "rx_invert": null,
+         "notes": "self-loopback via OSFP cage; needs loopback module plugged"},
+        {"addr": ":8",  "slice": "SD1", "connector": "PHD2",  "channel": "PHD2 1 m + UPXR flyover",   "partner": ":e",  "usable": true,  "tx_lane_map": "54761032", "rx_invert": "11111111",
+         "notes": "pair-swap compensation on TX; all-lane RX P/N invert per config"},
+        {"addr": ":9",  "slice": "SD2", "connector": "PHD2",  "channel": "PHD2 1 m + UPXR flyover",   "partner": ":f",  "usable": true,  "tx_lane_map": "54761032", "rx_invert": null,
+         "notes": "verified link 2026-08-27; lanes 4-7 arrive P/N inverted, auto-polarity corrects"},
+        {"addr": ":e",  "slice": "SD3", "connector": "UPXR",  "channel": "UPXR flyover",              "partner": ":8",  "usable": true,  "tx_lane_map": null,       "rx_invert": null,
+         "notes": ""},
+        {"addr": ":f",  "slice": "SD4", "connector": "UPXR",  "channel": "UPXR flyover",              "partner": ":9",  "usable": true,  "tx_lane_map": null,       "rx_invert": null,
+         "notes": "verified link 2026-08-27; lanes 4-7 arrive P/N inverted, auto-polarity corrects"},
+        {"addr": ":14", "slice": "SD5", "connector": "OSFP",  "channel": "OSFP 1.5 m loopback (MR7)", "partner": null,  "usable": true,  "tx_lane_map": null,       "rx_invert": null,
+         "notes": "self-loopback via OSFP cage; needs loopback module plugged"}
+      ]
+    },
+    {
+      "die": 1,
+      "name": "S1",
+      "role": "characterization die (loopbacks / coax)",
+      "octals": [
+        {"addr": "1::3",  "slice": "SD0", "connector": "MXPM70",       "channel": "coax connector array mount",  "partner": null, "usable": false, "tx_lane_map": null, "rx_invert": null,
+         "notes": "usable only once coax hardware is populated"},
+        {"addr": "1::8",  "slice": "SD1", "connector": "pad loopback", "channel": "pad-to-pad loopback",          "partner": "self", "usable": true, "tx_lane_map": null, "rx_invert": null,
+         "notes": "shortest possible channel; TX folded to RX at package pads"},
+        {"addr": "1::9",  "slice": "SD2", "connector": "none",         "channel": "no connect",                   "partner": null, "usable": false, "tx_lane_map": null, "rx_invert": null,
+         "notes": "TX unrouted, RX shorted - can never link"},
+        {"addr": "1::e",  "slice": "SD3", "connector": "none",         "channel": "no connect",                   "partner": null, "usable": false, "tx_lane_map": null, "rx_invert": null,
+         "notes": "TX unrouted, RX shorted - can never link"},
+        {"addr": "1::f",  "slice": "SD4", "connector": "via loopback", "channel": "13-14 in. trace loopback",     "partner": "self", "usable": true, "tx_lane_map": null, "rx_invert": null,
+         "notes": "long lossy PCB-trace loopback, backdrilled vias - channel stress"},
+        {"addr": "1::14", "slice": "SD5", "connector": "MXPD70",       "channel": "coax footprint (unpopulated)", "partner": null, "usable": false, "tx_lane_map": null, "rx_invert": null,
+         "notes": "componentless footprint only"}
+      ]
+    }
+  ],
+  "broadcast": {"die0_all_octals": ":f6", "die1_all_octals": "1::f6"},
+  "thermal_addr": {"die0": ":17", "die1": "1::17"},
+  "rails_healthy_idle_watts": 6.3,
+  "rails_active_watts": 22.0,
+  "safety": {
+    "vset_exposed": false,
+    "pi_shutdown_hint": "ssh pi@169.254.52.213 'sudo shutdown -h now' and wait ~10 s before cutting SW3/ATX power",
+    "firmware_volatile": "SerDes firmware lives in SRAM - every DUT power cycle requires re-upload"
+  }
+}

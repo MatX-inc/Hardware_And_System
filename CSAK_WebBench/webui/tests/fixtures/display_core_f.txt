@@ -1,0 +1,34 @@
+
+**** SERDES DISPLAY DIAG DATA ****
+Rev ID Letter        = 00
+Rev ID Process       = 02
+Rev ID Model         = 1F
+Rev ID 2             = 01
+Rev ID # Lanes       = 8
+Core  = 15;    Lane  = All lanes
+SERDES API Version   = A00401
+Common Ucode Version = D003_07
+AFE Hardware Version = 0xA0
+SerDes type          = condor3_pc
+FLR supported        = 0x1
+lane_select          = 0xff
+
+
+Passed timestamp check : Lane 0:	uC timestamp: 40306		Resolution: 9.9us/count. Passing resolution limits:	Max: 11.2us/count	Min: 8.8us/count
+SerDes type = condor3_pc
+CORE RST_ST  PLL_PWDN  UC_ATV   COM_CLK   UCODE_VER  API_VER  AFE_VER   LIVE_TEMP   AVG_TMON   RESCAL  2xVCO_RATE ANA_VCO_RANGE  PLL_DIV  PLL_LOCK
+ 15   0,00      0        1     156.25MHz   D003_07   A00401     0xA0       33C      (17) 33C    0x06   106.25GHz     067         170        1   
+
+LN (P RX  , CDRxN , UC_CFG,   UC_STS,  RST, STP) SD LCK RXPPM PF(M,L,H) VGA  DCO  TP(0,1,2)      RXFFE(n3,n2,n1,m,p1,p2)      DFE(1,2)  FLT(M,S) TXPPM        TXEQ(n3,n2,n1,m,p1,p2) NLC(U,L)    EYE(U,M,L)  LINK_TIME  SNR     BER
+ 0 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 1 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 2 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  40    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 3 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 4 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  40    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 5 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 6 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  40    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+ 7 (++P4N ,BRx1:x1, 0x4340, 0x00_0000, 0,0, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0     T(  0,  0,  0,168,  0,  0)( +0, +0) (  0,  0,  0)     0.0     ERR           
+
+**** SERDES DISPLAY DIAG DATA END ****
+
+

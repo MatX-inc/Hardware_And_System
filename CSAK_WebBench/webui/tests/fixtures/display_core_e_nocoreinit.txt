@@ -1,0 +1,36 @@
+
+**** SERDES DISPLAY DIAG DATA ****
+Rev ID Letter        = 00
+Rev ID Process       = 02
+Rev ID Model         = 1F
+Rev ID 2             = 01
+Rev ID # Lanes       = 8
+Core  = 14;    Lane  = All lanes
+SERDES API Version   = A00401
+Common Ucode Version = D003_07
+AFE Hardware Version = 0xA0
+SerDes type          = condor3_pc
+FLR supported        = 0x1
+lane_select          = 0xff
+
+
+Passed timestamp check : Lane 0:	uC timestamp: 40567		Resolution: 9.9us/count. Passing resolution limits:	Max: 11.2us/count	Min: 8.8us/count
+SerDes type = condor3_pc
+CORE RST_ST  PLL_PWDN  UC_ATV   COM_CLK   UCODE_VER  API_VER  AFE_VER   LIVE_TEMP   AVG_TMON   RESCAL  2xVCO_RATE ANA_VCO_RANGE  PLL_DIV  PLL_LOCK
+ 14   7,08      1        1     156.25MHz   D003_07   A00401     0xA0       33C      (17) 33C    0x06    58.00GHz     064         118        0*  
+core_sts BIT 3: is_uc_clk_sel_pending = 0x1
+
+
+LN (P RX  , CDRxN , UC_CFG,   UC_STS,  RST, STP) SD LCK RXPPM PF(M,L,H) VGA  DCO  TP(0,1,2)      RXFFE(n3,n2,n1,m,p1,p2)      DFE(1,2)  FLT(M,S) TXPPM        TXEQ(n3,n2,n1,m,p1,p2) NLC(U,L)    EYE(U,M,L)  LINK_TIME  SNR     BER
+ 0 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 1 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 2 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 3 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 4 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 5 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 6 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+ 7 (++NRZ ,BRx1:x1, 0x0000, 0x00_0000, 7,7, 41 ) 0  0     0  ( 0, 0, 0)  60    0 ( 0, 0, 0) (   0,   0,    0,   0,    0,   0)  ( 0, 0) (  0,  0)    0   D  ( x , x , x ,168, x , x )( +0, +0) (  0, x , x )     0.0     ERR   !chk_en 
+
+**** SERDES DISPLAY DIAG DATA END ****
+
+
