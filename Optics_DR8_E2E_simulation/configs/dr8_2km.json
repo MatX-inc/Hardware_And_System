@@ -1,0 +1,8 @@
+{
+  "fiber": {
+    "length_km": 2.0
+  },
+  "laser": {
+    "wavelength_error_nm": 1.5
+  }
+}

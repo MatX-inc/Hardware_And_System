@@ -1,0 +1,32 @@
+{
+  "lane": {
+    "fiber": {
+      "length_km": 6.0
+    },
+    "laser": {
+      "wavelength_error_nm": 1.5
+    }
+  },
+  "monte_carlo": true,
+  "spread": {
+    "cw_power_sigma_db": 0.3,
+    "wavelength_sigma_nm": 1.5,
+    "er_sigma_db": 0.2,
+    "bias_error_sigma_deg": 1.0,
+    "mzm_il_sigma_db": 0.3,
+    "connector_loss_sigma_db": 0.15,
+    "tia_irnd_sigma_pa": 1.0
+  },
+  "lane_overrides": {
+    "7": {
+      "mzm.insertion_loss_db": 7.5
+    }
+  },
+  "spec": {
+    "tdecq_max_db": 3.4,
+    "er_min_db": 3.5,
+    "rlm_min": 0.9,
+    "pre_fec_ber_max": 0.00024,
+    "link_margin_min_db": 0.0
+  }
+}

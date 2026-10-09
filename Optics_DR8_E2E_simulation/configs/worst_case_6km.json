@@ -1,0 +1,10 @@
+{
+  "fiber": {
+    "length_km": 6.0,
+    "zero_dispersion_wavelength_nm": 1300.0
+  },
+  "laser": {
+    "wavelength_error_nm": 4.5,
+    "freq_offset_ghz": 15.0
+  }
+}

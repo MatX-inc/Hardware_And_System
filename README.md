@@ -16,3 +16,6 @@ PackageSubstrate should contain
 All2All_Connection should contain:
 1) connectivity information for die-to-die.
 
+
+Optics_DR8_E2E_simulation contains:
+1) dr8sim, an end-to-end 1.6T-DR8 (8x200G PAM4) optical link simulator: host SerDes -> C2M -> retimed or LRO module -> SMF -> host RX, with TDECQ, sensitivity, link budget, 8-lane module and Broadcom Condor host SerDes cases. See its README.md.

@@ -1,0 +1,8 @@
+{
+  "host_channel": {
+    "retimed_forwarding": false
+  },
+  "fiber": {
+    "length_km": 2.0
+  }
+}
