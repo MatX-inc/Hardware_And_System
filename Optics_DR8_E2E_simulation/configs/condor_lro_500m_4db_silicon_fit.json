@@ -1,0 +1,23 @@
+{
+  "host_serdes": "condor",
+  "architecture": "lro",
+  "host_channel": {
+    "pcb_trace_length_mm": 120.0,
+    "pcb_dielectric_loss_db_per_inch_ghz": 0.01163,
+    "pcb_skin_loss_db_per_inch_sqrt_ghz": 0.08
+  },
+  "fiber": {
+    "length_km": 0.5,
+    "total_channel_loss_db": 4.0
+  },
+  "lro": {
+    "driver_peaking_db": 1.5
+  },
+  "condor": {
+    "rx_clock_rj_ui": 0.00106,
+    "rx_clock_dj_pp_ui": 0.00786,
+    "tx_snr_db": 38.0,
+    "rx_noise_psd_mv_per_sqrt_ghz": 0.064,
+    "rx_adc_enob": 7.0
+  }
+}

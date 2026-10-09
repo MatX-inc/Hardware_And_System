@@ -93,16 +93,23 @@ def run_end_to_end_simulation(
   )
 
   # Stage 2: Digital signal forwarding from Client RX (HRX) to Line TX (OTX).
-  if sim_cfg.host_channel.retimed_forwarding:
+  retimed_tx = sim_cfg.host_channel.retimed_forwarding
+  if retimed_tx:
     otx_input_symbols = c2m_result.sliced_symbols
   else:
     otx_input_symbols = np.clip(c2m_result.equalized_symbols, -1.1, 1.1)
+  # Symbols actually launched on the line. Each hop counts errors against its
+  # own input, so C2M errors are not counted again downstream. With soft
+  # forwarding there is no decision point, so downstream hops reference the
+  # original host TX symbols (and already include the C2M errors).
+  line_symbols = c2m_result.sliced_symbols if retimed_tx else tx_symbols
+  line_bits = c2m_result.rx_bits if retimed_tx else tx_bits
 
   # Stages 3, 4, 5, 6, 7: CW Laser -> SiPh MZM -> SMF-28 Fiber ->
   # PIN PD + TIA -> Line RX ADC -> Media RX (ORX) FFE/DFE DSP.
   optical_result = optical_channel.simulate_optical_sublink(
       otx_input_symbols=otx_input_symbols,
-      reference_tx_symbols=tx_symbols,
+      reference_tx_symbols=line_symbols,
       sim_cfg=sim_cfg,
       rng=rng,
       additional_attenuation_db=0.0,
@@ -113,8 +120,8 @@ def run_end_to_end_simulation(
   # host RX equalizing the whole optical + M2C channel.
   m2c_result, downstream_ber = return_path.simulate_receive_direction(
       opt_res=optical_result,
-      ref_symbols=tx_symbols,
-      ref_bits=tx_bits,
+      ref_symbols=line_symbols,
+      ref_bits=line_bits,
       sim_cfg=sim_cfg,
       rng=rng,
   )
@@ -136,19 +143,23 @@ def run_end_to_end_simulation(
       np.mean(rx_final_bits[trim_bits:-trim_bits] != tx_bits[trim_bits:-trim_bits])
   )
   # Combine with analytical sub-link BER floor when zero errors are counted
-  e2e_ser = max(empirical_e2e_ser, c2m_result.ser + downstream_ser)
-  e2e_ber = max(empirical_e2e_ber, c2m_result.ber + downstream_ber)
+  if retimed_tx:
+    e2e_ser = max(empirical_e2e_ser, c2m_result.ser + downstream_ser)
+    e2e_ber = max(empirical_e2e_ber, c2m_result.ber + downstream_ber)
+  else:
+    e2e_ser = max(empirical_e2e_ser, downstream_ser)
+    e2e_ber = max(empirical_e2e_ber, downstream_ber)
 
   # Metrology: Calculate 0 km TECQ and link-length TDECQ
   tecq_result = metrology.calculate_tdecq(
       optical_power_mw=optical_result.tx_optical_power_mw,
-      tx_symbols=tx_symbols,
+      tx_symbols=line_symbols,
       sim_cfg=sim_cfg,
       target_ser=sim_cfg.receiver.target_tdecq_ser,
   )
   tdecq_result = metrology.calculate_tdecq(
       optical_power_mw=optical_result.rx_optical_power_mw,
-      tx_symbols=tx_symbols,
+      tx_symbols=line_symbols,
       sim_cfg=sim_cfg,
       target_ser=sim_cfg.receiver.target_tdecq_ser,
   )
@@ -170,7 +181,7 @@ def run_end_to_end_simulation(
     budget_report = metrology.compute_link_budget(
         sim_cfg=sim_cfg,
         opt_result=optical_result,
-        tx_symbols=tx_symbols,
+        tx_symbols=line_symbols,
         sens_btb=sens_btb,
         sens_link=sens_link,
     )
@@ -273,9 +284,10 @@ def sweep_parameter(
   rows: List[Dict[str, Any]] = []
   for value in values:
     cfg_step = copy.deepcopy(sim_cfg)
-    config.set_by_path(cfg_step, key, value)
     if max_symbols is not None:
       cfg_step.num_symbols = min(cfg_step.num_symbols, max_symbols)
+    # Set the swept value after the cap so sweeping num_symbols itself works.
+    config.set_by_path(cfg_step, key, value)
     res = run_end_to_end_simulation(cfg_step, run_sensitivity_and_budget=False)
     rows.append({'key': key, 'value': value, **_sweep_row(res)})
   return rows
@@ -352,7 +364,12 @@ def format_simulation_report(result: EndToEndSimulationResult) -> str:
       f'{opt.effective_wavelength_nm:.3f} nm '
       f'(dWL={cfg.laser.wavelength_error_nm:+.2f} nm, dF={cfg.laser.freq_offset_ghz:+.1f} GHz)',
       f'  Laser CW Power / RIN / LW    : {cfg.laser.cw_power_dbm:.2f} dBm, '
-      f'RIN = {cfg.laser.rin_db_hz:.1f} dB/Hz, Linewidth = {cfg.laser.linewidth_mhz:.2f} MHz',
+      f'RIN = {cfg.effective_laser_rin_db_hz:.1f} dB/Hz'
+      + (f' (RIN_OMA {cfg.rin_oma_db_hz:.1f} dB/Hz @ ER '
+         f'{cfg.mzm.target_outer_er_db:g} dB'
+         + (', set as input' if cfg.laser.rin_oma_db_hz is not None else '')
+         + ')' if cfg.rin_oma_db_hz is not None else '')
+      + f', Linewidth = {cfg.laser.linewidth_mhz:.2f} MHz',
       f'  SiPh MZM Vpi / EO Bandwidth  : Vpi = {cfg.mzm.vpi_volts:.2f} V, '
       f'EO BW = {cfg.mzm.eo_bw_ghz:.1f} GHz, IL = {cfg.mzm.insertion_loss_db:.2f} dB',
       f'  Launched TX Average Power    : {opt.tx_avg_power_dbm:+.2f} dBm',
@@ -446,6 +463,7 @@ def format_simulation_report(result: EndToEndSimulationResult) -> str:
   if bgt is not None and result.sensitivity_link is not None:
     sens = result.sensitivity_link
     margin = bgt.net_link_margin_db
+    tgt = cfg.receiver.target_pre_fec_ber
     if math.isnan(margin):
       verdict = 'UNKNOWN: sensitivity sweep did not reach target BER'
     else:
@@ -453,15 +471,15 @@ def format_simulation_report(result: EndToEndSimulationResult) -> str:
     lines.extend([
         '-' * 80,
         f'[Metrology & {km} Link Power Budget Summary]',
-        f'  0 km BTB Receiver Sensitivity (OMA @ BER=2.4e-4) : '
+        f'  0 km BTB Receiver Sensitivity (OMA @ BER={tgt:.1e}) : '
         f'{_fmt_db(bgt.rx_sensitivity_oma_btb_dbm)} dBm',
-        f'  {km:<5} ORX Receiver Sensitivity (OMA @ BER=2.4e-4): '
+        f'  {km:<5} ORX Receiver Sensitivity (OMA @ BER={tgt:.1e}): '
         f'{_fmt_db(bgt.rx_sensitivity_oma_link_dbm)} dBm '
         f'(P_avg = {_fmt_db(bgt.rx_sensitivity_pavg_link_dbm)} dBm)',
         f'  {km:<5} ORX Receiver Sensitivity (OMA @ BER=1.0e-3): '
         f'{_fmt_db(sens.sensitivity_oma_dbm_at_1e3)} dBm '
         f'(P_avg = {_fmt_db(sens.sensitivity_pavg_dbm_at_1e3)} dBm)',
-        f'  {km:<5} E2E Host RX Sensitivity (OMA @ BER=2.4e-4) : '
+        f'  {km:<5} E2E Host RX Sensitivity (OMA @ BER={tgt:.1e}) : '
         f'{_fmt_db(sens.e2e_sensitivity_oma_dbm_at_kp4)} dBm',
         f'  Total Available OMA Power Budget (TX_OMA - BTB)  : '
         f'{_fmt_db(bgt.total_power_budget_oma_db, ".2f")} dB',
@@ -476,25 +494,27 @@ def format_simulation_report(result: EndToEndSimulationResult) -> str:
         + f'{bgt.connector_loss_db:.2f} dB',
         f'  - Fiber Splice & Aging Loss                      : '
         f'{bgt.splice_and_aging_loss_db:.2f} dB',
-        f'  - Dispersion & Eye Closure Penalty Allocation    : '
+        f'  - Dispersion/Eye-Closure Penalty (link - BTB sens): '
         f'{_fmt_db(bgt.tdecq_allocation_db, ".2f")} dB',
-        f'  - MPI & PMD/DGD Penalty Allocation               : '
+        f'  - MPI Allocation                                 : '
         f'{bgt.mpi_and_dgd_penalty_db:.2f} dB',
         (
-            '  - LRO Linear-RX Penalty (host RX vs DSP RX)      : '
+            '  - LRO Linear-RX Penalty (E2E - ORX sens)         : '
             if is_lro
-            else '  - Host M2C Concatenation Penalty                 : '
+            else '  - Host M2C Concatenation Penalty (E2E - ORX sens): '
         )
         + f'{_fmt_db(bgt.host_m2c_concatenation_penalty_db, ".2f")} dB',
         f'  => NET UNALLOCATED LINK MARGIN @ {km:<16}: '
         f'{_fmt_db(margin)} dB ({verdict})',
+        f'  (info) TDECQ - TECQ                              : '
+        f'{bgt.dispersion_penalty_tdecq_db:+.2f} dB',
     ])
 
   lines.append('=' * 80)
   return '\n'.join(lines)
 
 
-def _json_float(value: Any) -> Any:
+def json_float(value: Any) -> Any:
   """Converts NaN/inf to None so the summary is strict JSON."""
   if value is None:
     return None
@@ -519,6 +539,8 @@ def summarize_result(result: EndToEndSimulationResult) -> Dict[str, Any]:
       'c2m_pcb_loss_nyquist_db': result.host_to_client_c2m.pcb_loss_nyquist_db,
       'c2m_snr_db': result.host_to_client_c2m.post_eq_snr_db,
       'c2m_ber': result.host_to_client_c2m.ber,
+      'laser_rin_db_hz': cfg.effective_laser_rin_db_hz,
+      'rin_oma_db_hz': cfg.rin_oma_db_hz,
       'tx_avg_power_dbm': opt.tx_avg_power_dbm,
       'tx_oma_outer_dbm': opt.tx_oma_outer_dbm,
       'tx_er_db': opt.tx_er_db,
@@ -542,6 +564,6 @@ def summarize_result(result: EndToEndSimulationResult) -> Dict[str, Any]:
         'net_link_margin_db': bgt.net_link_margin_db,
     })
   return {
-      k: v if isinstance(v, str) else _json_float(v)
+      k: v if isinstance(v, str) else json_float(v)
       for k, v in summary.items()
   }

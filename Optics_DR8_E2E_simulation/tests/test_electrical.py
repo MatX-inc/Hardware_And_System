@@ -1,6 +1,7 @@
 """Tests for the electrical (C2M / M2C) channel and SerDes DSP models."""
 
 import numpy as np
+import pytest
 
 from dr8sim import config
 from dr8sim import electrical_channel
@@ -60,3 +61,24 @@ def test_longer_pcb_trace_has_more_loss():
       x, trace_length_mm=200.0, **kwargs
   )
   assert long_db > short_db
+
+
+def test_rx_noise_is_band_limited_and_rate_independent():
+  rng = np.random.default_rng(0)
+  for sps in (8, 16, 32):
+    fs = 106.25e9 * sps
+    n = electrical_channel.band_limited_noise(1 << 18, fs, 0.15e-3, 79.6875, rng)
+    # RMS = psd * sqrt(bandwidth), independent of the sample rate.
+    assert np.std(n) == pytest.approx(0.15e-3 * np.sqrt(79.6875), rel=0.02)
+
+
+def test_c2m_snr_is_stable_across_samples_per_symbol():
+  snrs = []
+  for sps in (16, 32):
+    cfg = config.LinkSimulationConfig(num_symbols=4096, samples_per_symbol=sps)
+    rng = np.random.default_rng(1)
+    sym, _, bits = electrical_channel.generate_pam4_symbols(4096, rng)
+    res = electrical_channel.simulate_electrical_segment(
+        sym, bits, cfg, cfg.host_channel, rng)
+    snrs.append(res.post_eq_snr_db)
+  assert abs(snrs[0] - snrs[1]) < 0.3

@@ -19,3 +19,6 @@ All2All_Connection should contain:
 
 Optics_DR8_E2E_simulation contains:
 1) dr8sim, an end-to-end 1.6T-DR8 (8x200G PAM4) optical link simulator: host SerDes -> C2M -> retimed or LRO module -> SMF -> host RX, with TDECQ, sensitivity, link budget, 8-lane module and Broadcom Condor host SerDes cases. See its README.md.
+
+Optics_1p6T_DR8_Program contains:
+1) the 1.6T DR8 optics qualification program: workstream folders (lab setup, optics sourcing, switch selection, qualification test plan, data analysis, simulation), a tracker snapshot (TRACKER.md and CSVs) and the decision log. See its README.md.

@@ -18,7 +18,36 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from typing import Any, Dict, Sequence, Tuple
+
+
+def rin_oma_correction_db(er_db: float) -> float:
+  """RIN_OMA minus laser RIN (dB) for square-wave modulation at `er_db`.
+
+  With multiplicative laser RIN, the noise variance at power P is
+  RIN * B * P^2. RIN_OMA references the noise averaged over the two levels of
+  a square wave to OMA^2 = (P_high - P_low)^2, so with ER = P_high / P_low:
+
+    RIN_OMA - RIN = 10 * log10((1 + ER^2) / (2 * (ER - 1)^2))
+
+  e.g. +2.92 dB at ER = 3.5 dB, +0.71 dB at 5 dB, -0.23 dB at 6 dB,
+  -1.40 dB at 8 dB.
+  """
+  er = 10.0 ** (er_db / 10.0)
+  if er <= 1.0:
+    raise ValueError(f'RIN_OMA needs an extinction ratio > 0 dB, got {er_db}')
+  return 10.0 * math.log10((1.0 + er * er) / (2.0 * (er - 1.0) ** 2))
+
+
+def rin_oma_to_laser_rin(rin_oma_db_hz: float, er_db: float) -> float:
+  """Converts a RIN_OMA (dB/Hz) to the laser RIN the simulator applies."""
+  return rin_oma_db_hz - rin_oma_correction_db(er_db)
+
+
+def laser_rin_to_rin_oma(rin_db_hz: float, er_db: float) -> float:
+  """Converts a laser RIN (dB/Hz) to the equivalent RIN_OMA."""
+  return rin_db_hz + rin_oma_correction_db(er_db)
 
 
 @dataclasses.dataclass
@@ -119,7 +148,14 @@ class LaserConfig:
     freq_offset_ghz: Additional laser frequency error (GHz). Converted and
       added to wavelength_error_nm during simulation.
     cw_power_dbm: Laser CW optical output power before modulator losses (dBm).
-    rin_db_hz: Laser Relative Intensity Noise (RIN) spectral density (dB/Hz).
+    rin_db_hz: Laser Relative Intensity Noise (RIN) spectral density (dB/Hz),
+      one-sided, relative to average CW power. This is what the simulation
+      applies, unless rin_oma_db_hz is set.
+    rin_oma_db_hz: Optional RIN_OMA (dB/Hz), the IEEE-style spec quantity.
+      If set, it overrides rin_db_hz: the laser RIN is derived from it at the
+      MZM target outer ER (see rin_oma_to_laser_rin). Note that a spec
+      RIN_xOMA is measured with a reflection (x dB return loss); the model
+      has no reflection, so the whole value is treated as intrinsic RIN.
     linewidth_mhz: Laser 3-dB Lorentzian linewidth (MHz) causing Wiener phase
       noise.
   """
@@ -129,6 +165,7 @@ class LaserConfig:
   freq_offset_ghz: float = 15.0
   cw_power_dbm: float = 9.5
   rin_db_hz: float = -142.0
+  rin_oma_db_hz: float | None = None
   linewidth_mhz: float = 2.0
 
 
@@ -310,12 +347,16 @@ class CondorConfig:
     rx_noise_psd_mv_per_sqrt_ghz: RX input-referred noise density
       (mV/sqrt(GHz)); 0.128 equals COM eta0 = 1.64e-8 V^2/GHz. [COM]
     rx_adc_enob: RX ADC effective bits. [ASSUMED]
-    rx_ffe_taps: RX DSP FFE taps. [ASSUMED] Silicon exposes an RX FFE
-      (aapl -get-rxffe), but Broadcom's AMI model lists only PF + VGA + DFE,
-      so set 1 here to mimic the AMI model.
-    rx_ffe_pre_taps: RX FFE pre-cursor taps. [ASSUMED]
-    rx_dfe_taps: RX DFE taps (count unknown). [ASSUMED]
-    rx_clock_rj_ui: RX sampling-clock RJ RMS (UI). [AMI]
+    rx_ffe_taps: RX DSP FFE taps. [MEASURED] A link-trained Condor lane dump
+      (CSAK bench, firmware D003_07) shows RXFFE(n3,n2,n1,m,p1,p2): 6 taps.
+    rx_ffe_pre_taps: RX FFE pre-cursor taps. [MEASURED: 3]
+    rx_dfe_taps: RX DFE taps. [MEASURED-ish] The same dump shows DFE(1,2) =
+      (x, 0) in PAM4 ER mode, where Broadcom uses an "ECD" block instead.
+      1 tap here stands in for the ECD.
+    rx_clock_rj_ui: RX sampling-clock RJ RMS (UI). [AMI; units ambiguous]
+      The AMI sheet gives Rx_Clock_PDF "-0.037 0.037 0.01" with no unit; read
+      as UI (default, conservative). Read as ps it is ~10x smaller, which
+      measured Condor BER-vs-loss data favors.
     rx_clock_dj_pp_ui: RX sampling-clock DJ peak-to-peak (UI). [AMI: +/-0.037]
     host_link_ber_target: Pre-FEC BER that Broadcom requires at a Condor RX
       in PAM4 IBIS-AMI link simulations (~1.5e-6, equivalent to ~1e-15
@@ -337,7 +378,7 @@ class CondorConfig:
   rx_afe_bw_ghz: float = 70.0
   rx_noise_psd_mv_per_sqrt_ghz: float = 0.128
   rx_adc_enob: float = 6.5
-  rx_ffe_taps: int = 24
+  rx_ffe_taps: int = 6
   rx_ffe_pre_taps: int = 3
   rx_dfe_taps: int = 1
   rx_clock_rj_ui: float = 0.01
@@ -461,12 +502,38 @@ class LinkSimulationConfig:
           f'architecture must be one of {ARCHITECTURES}, '
           f'got {self.architecture!r}'
       )
+    if (self.laser.rin_oma_db_hz is not None
+        and self.mzm.target_outer_er_db <= 0):
+      raise ValueError(
+          'laser.rin_oma_db_hz needs mzm.target_outer_er_db > 0 to convert '
+          'to laser RIN'
+      )
     if self.host_serdes not in HOST_SERDES_MODELS:
       raise ValueError(
           f'host_serdes must be one of {HOST_SERDES_MODELS}, '
           f'got {self.host_serdes!r}'
       )
     self.condor.validate()
+
+  @property
+  def effective_laser_rin_db_hz(self) -> float:
+    """Laser RIN applied in the simulation (from RIN_OMA if that is set)."""
+    if self.laser.rin_oma_db_hz is not None:
+      return rin_oma_to_laser_rin(
+          self.laser.rin_oma_db_hz, self.mzm.target_outer_er_db
+      )
+    return self.laser.rin_db_hz
+
+  @property
+  def rin_oma_db_hz(self) -> float | None:
+    """RIN_OMA equivalent of the applied laser RIN at the target outer ER."""
+    if self.laser.rin_oma_db_hz is not None:
+      return self.laser.rin_oma_db_hz
+    if self.mzm.target_outer_er_db <= 0:
+      return None
+    return laser_rin_to_rin_oma(
+        self.laser.rin_db_hz, self.mzm.target_outer_er_db
+    )
 
   @property
   def symbol_period_s(self) -> float:
@@ -604,12 +671,21 @@ def to_dict(cfg: Any) -> Dict[str, Any]:
   return out
 
 
+# Fields whose value may legitimately be None (Optional in the dataclasses).
+_OPTIONAL_KEYS = {
+    'override_dispersion_ps_nm_km', 'total_channel_loss_db', 'rin_oma_db_hz',
+}
+
+
 def _coerce(current: Any, value: Any, key: str) -> Any:
   """Coerces `value` to the type of the existing field value `current`."""
+  field_name = key.rsplit('.', 1)[-1]
   if value is None or (
       isinstance(value, str) and value.lower() in ('none', 'null')
   ):
-    return None
+    if current is None or field_name in _OPTIONAL_KEYS:
+      return None
+    raise ValueError(f'{key} cannot be None')
   if isinstance(current, bool):
     if isinstance(value, str):
       if value.lower() in ('true', '1', 'yes'):
@@ -619,11 +695,25 @@ def _coerce(current: Any, value: Any, key: str) -> Any:
       raise ValueError(f'{key}: expected a boolean, got {value!r}')
     return bool(value)
   if isinstance(current, int):
-    return int(value)
+    try:
+      as_float = float(value)
+    except (TypeError, ValueError):
+      raise ValueError(f'{key}: expected an integer, got {value!r}') from None
+    if not as_float.is_integer():
+      raise ValueError(f'{key}: expected an integer, got {value!r}')
+    return int(as_float)
   if isinstance(current, float) or current is None:
-    return float(value)
+    try:
+      return float(value)
+    except (TypeError, ValueError):
+      raise ValueError(f'{key}: expected a number, got {value!r}') from None
   if isinstance(current, tuple):
-    return tuple(float(v) for v in value)
+    if isinstance(value, (str, bytes)) or not hasattr(value, '__iter__'):
+      raise ValueError(f'{key}: expected a list, got {value!r}')
+    try:
+      return tuple(float(v) for v in value)
+    except (TypeError, ValueError):
+      raise ValueError(f'{key}: expected a list of numbers') from None
   if isinstance(current, dict):
     return dict(value)
   return value

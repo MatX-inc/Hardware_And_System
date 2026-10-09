@@ -181,11 +181,12 @@ def compute_drive_vpp_for_target_er(
 ) -> float:
   """Computes the RF peak-to-peak drive voltage required for a target outer ER.
 
-  For a push-pull MZM biased at quadrature (phi_bias = pi/2), the normalized
-  optical intensity is:
-    I(V) ~ 0.5 * (1 + sin(pi * V / V_pi))
+  For a push-pull MZM biased at quadrature with a finite intrinsic ER
+  (null depth eps^2 = 10^(-ER_int/10)), the normalized optical intensity is:
+    I(V) ~ (1 + eps^2) + (1 - eps^2) * sin(pi * V / V_pi)
   where V spans [-V_pp / 2, +V_pp / 2]. Thus:
-    ER_outer = (1 + s_max) / (1 - s_max)  =>  s_max = (ER - 1) / (ER + 1)
+    s_max = (ER - 1)(1 + eps^2) / ((ER + 1)(1 - eps^2))
+  The bias error is not compensated (it is a real residual impairment).
 
   Args:
     target_er_db: Desired outer Extinction Ratio in dB.
@@ -195,12 +196,139 @@ def compute_drive_vpp_for_target_er(
   Returns:
     Required differential peak-to-peak RF drive swing V_pp (V).
   """
-  er_lin = 10.0 ** (target_er_db / 10.0)
-  er_int_lin = 10.0 ** (max(intrinsic_er_db, target_er_db + 1.0) / 10.0)
-  er_eff = min(er_lin, 0.98 * er_int_lin)
-  s_max = (er_eff - 1.0) / (er_eff + 1.0)
+  er = 10.0 ** (target_er_db / 10.0)
+  eps2 = 10.0 ** (-intrinsic_er_db / 10.0)  # null-to-peak intensity floor
+  # I(V) ~ (1 + eps^2) + (1 - eps^2) * sin(pi V / V_pi), so the outer ER at
+  # +/- V_pp/2 is reached with sin(pi V_pp / (2 V_pi)) = s below.
+  s_max = (er - 1.0) * (1.0 + eps2) / ((er + 1.0) * (1.0 - eps2))
   s_max = float(np.clip(s_max, 0.01, 0.995))
   return float((2.0 * vpi_volts / np.pi) * np.arcsin(s_max))
+
+
+def _line_tx_drive(
+    symbols: np.ndarray,
+    sim_cfg: config.LinkSimulationConfig,
+    mzm_cfg: config.MzmConfig,
+    rng: np.random.Generator | None,
+    dac_full_scale: float | None = None,
+    apply_dac: bool = True,
+) -> Tuple[np.ndarray, float]:
+  """Line-TX DSP + DAC + driver: FIR, arcsin predistortion, DAC, bandwidth.
+
+  Returns:
+    (drive waveform at the MZM electrodes in V, DAC full scale used in V).
+  """
+  sps = sim_cfg.samples_per_symbol
+  fs = sim_cfg.sample_rate_hz
+
+  # 1. Line TX DSP T-spaced FIR pre-emphasis normalized to DC gain = 1.0
+  # so steady-state outer PAM4 levels remain at [-1, +1] while transitions are
+  # boosted to pre-compensate RF driver + MZM EO roll-off.
+  taps = np.asarray(mzm_cfg.line_tx_fir_taps, dtype=np.float64)
+  dc_sum = float(np.sum(taps))
+  if abs(dc_sum) > 1e-6:
+    taps = taps / dc_sum
+  main_idx = int(np.argmax(np.abs(taps)))
+  pre_emp_full = np.convolve(symbols, taps, mode='full')
+  pre_emp = pre_emp_full[main_idx : main_idx + len(symbols)]
+
+  # 2. Nominal RF drive V_pp for the target outer ER (steady state +/-1)
+  if mzm_cfg.target_outer_er_db > 0:
+    vpp = compute_drive_vpp_for_target_er(
+        target_er_db=mzm_cfg.target_outer_er_db,
+        vpi_volts=mzm_cfg.vpi_volts,
+        intrinsic_er_db=mzm_cfg.intrinsic_er_db,
+    )
+  else:
+    vpp = mzm_cfg.drive_vpp_volts
+
+  # 3. Optional arcsin pre-distortion to linearize the MZM's sin(pi*V/V_pi):
+  # x -> (V_pi / pi) * arcsin(clip(s_nom * x)), s_nom = sin(pi*vpp/(2*V_pi)).
+  s_nom = float(np.sin(0.5 * np.pi * vpp / mzm_cfg.vpi_volts))
+  if mzm_cfg.enable_arcsin_predistortion and s_nom > 0.05:
+    arg = np.clip(s_nom * pre_emp, -0.98, 0.98)
+    pre_dist_v = (mzm_cfg.vpi_volts / np.pi) * np.arcsin(arg)
+  else:
+    pre_dist_v = pre_emp * (0.5 * vpp)
+
+  # 4. Line TX DAC quantization
+  if dac_full_scale is None:
+    dac_full_scale = 2.05 * float(np.max(np.abs(pre_dist_v)))
+  if apply_dac:
+    dac_out_v = electrical_channel.quantize_signal(
+        pre_dist_v,
+        enob=mzm_cfg.line_tx_dac_enob,
+        full_scale_pp=dac_full_scale,
+        rng=rng,
+    )
+  else:
+    dac_out_v = pre_dist_v
+
+  # 5. Upsample and filter through composite RF driver + MZM EO bandwidth
+  # Using the composite 3-dB bandwidth 1 / sqrt(1/f_drv^2 + 1/f_eo^2)
+  composite_bw_ghz = 1.0 / np.sqrt(
+      (1.0 / max(mzm_cfg.driver_bw_ghz, 1.0)) ** 2
+      + (1.0 / max(mzm_cfg.eo_bw_ghz, 1.0)) ** 2
+  )
+  rf_waveform_v = np.repeat(dac_out_v, sps)
+  drive_v = electrical_channel.apply_bessel_lowpass(
+      rf_waveform_v, cutoff_ghz=composite_bw_ghz, sample_rate_hz=fs, order=4
+  )
+  return drive_v, dac_full_scale
+
+
+def _mzm_field_transfer(
+    drive_v: np.ndarray, mzm_cfg: config.MzmConfig
+) -> np.ndarray:
+  """Push-pull SiPh MZM field transfer incl. finite ER, IL, and chirp.
+
+  Biased at quadrature (-pi/2 on the cos^2 curve so +V increases power):
+    E_out / E_in = IL * [cos(phi/2) + j * eps * sin(phi/2)]
+  with eps = 10^(-ER_int/20), so the null-to-peak power ratio is ER_int.
+  A residual chirp exp(j * (alpha_H / 2) * ln I) is applied, with phase in
+  the e^{+j omega t} convention used throughout (numpy FFT synthesis).
+  """
+  bias_err_rad = np.deg2rad(mzm_cfg.bias_error_deg)
+  phi_t = (
+      -mzm_cfg.bias_phase_rad
+      + bias_err_rad
+      + (np.pi * drive_v / mzm_cfg.vpi_volts)
+  )
+  eps = 10.0 ** (-mzm_cfg.intrinsic_er_db / 20.0)
+  il_field = 10.0 ** (-mzm_cfg.insertion_loss_db / 20.0)
+  transfer = il_field * (np.cos(0.5 * phi_t) + 1j * eps * np.sin(0.5 * phi_t))
+  intensity_norm = np.maximum(np.abs(transfer) ** 2, 1e-9)
+  chirp_phase = 0.5 * mzm_cfg.chirp_alpha * np.log(intensity_norm)
+  return transfer * np.exp(1j * chirp_phase)
+
+
+def _long_run_levels_mw(
+    sim_cfg: config.LinkSimulationConfig,
+    mzm_cfg: config.MzmConfig,
+    dac_full_scale: float,
+    cw_power_mw: float,
+    run_symbols: int = 64,
+    repeats: int = 4,
+) -> np.ndarray:
+  """Steady-state optical power of each PAM4 level (mW) from long runs."""
+  sps = sim_cfg.samples_per_symbol
+  levels = electrical_channel.PAM4_LEVELS
+  pattern = np.tile(np.repeat(levels, run_symbols), repeats)
+  # The signal path models the DAC as zero-mean noise, so the mean level has
+  # no DAC error; skip the DAC here rather than rounding the levels.
+  drive_v, _ = _line_tx_drive(pattern, sim_cfg, mzm_cfg, rng=None,
+                              dac_full_scale=dac_full_scale, apply_dac=False)
+  power = np.abs(_mzm_field_transfer(drive_v, mzm_cfg)) ** 2 * cw_power_mw
+  run_len = run_symbols * sps
+  q = run_len // 4
+  out = np.zeros(4)
+  for idx in range(4):
+    chunks = [
+        power[(r * 4 + idx) * run_len + q:(r * 4 + idx) * run_len + run_len - q]
+        for r in range(repeats)
+    ]
+    out[idx] = float(np.mean(np.concatenate(chunks)))
+  return out
 
 
 def modulate_siph_mzm(
@@ -229,102 +357,23 @@ def modulate_siph_mzm(
       - tx_er_db: Outer Extinction Ratio 10*log10(P3 / P0) (dB)
       - level_powers_mw: 4-element array [P0, P1, P2, P3] (mW)
   """
-  sps = sim_cfg.samples_per_symbol
-  fs = sim_cfg.sample_rate_hz
-
-  # 1. Line TX DSP T-spaced FIR pre-emphasis normalized to DC gain = 1.0
-  # so steady-state outer PAM4 levels remain at [-1, +1] while transitions are
-  # boosted to pre-compensate RF driver + MZM EO roll-off.
-  taps = np.asarray(mzm_cfg.line_tx_fir_taps, dtype=np.float64)
-  dc_sum = float(np.sum(taps))
-  if abs(dc_sum) > 1e-6:
-    taps = taps / dc_sum
-  main_idx = int(np.argmax(np.abs(taps)))
-  pre_emp_full = np.convolve(symbols, taps, mode='full')
-  pre_emp = pre_emp_full[main_idx : main_idx + len(symbols)]
-
-  # 2. Determine nominal RF drive V_pp for target outer ER (at steady state +/-1)
-  if mzm_cfg.target_outer_er_db > 0:
-    vpp = compute_drive_vpp_for_target_er(
-        target_er_db=mzm_cfg.target_outer_er_db,
-        vpi_volts=mzm_cfg.vpi_volts,
-        intrinsic_er_db=mzm_cfg.intrinsic_er_db,
-    )
-  else:
-    vpp = mzm_cfg.drive_vpp_volts
-
-  # 3. Optional arcsin nonlinear pre-distortion to linearize MZM sin(pi*V/V_pi)
-  # Since sin(pi * V_nom / (2 * V_pi)) = s_max * x for linear intensity, we map
-  # x -> (2 * V_pi / (pi * vpp)) * arcsin(clip(s_max * x, -0.98, 0.98)).
-  s_nom = float(np.sin(0.5 * np.pi * vpp / mzm_cfg.vpi_volts))
-  if mzm_cfg.enable_arcsin_predistortion and s_nom > 0.05:
-    arg = np.clip(s_nom * pre_emp, -0.98, 0.98)
-    pre_dist_v = (mzm_cfg.vpi_volts / np.pi) * np.arcsin(arg)
-  else:
-    pre_dist_v = pre_emp * (0.5 * vpp)
-
-  # 4. Line TX DAC quantization
-  max_swing_pp = 2.05 * float(np.max(np.abs(pre_dist_v)))
-  dac_out_v = electrical_channel.quantize_signal(
-      pre_dist_v,
-      enob=mzm_cfg.line_tx_dac_enob,
-      full_scale_pp=max_swing_pp,
-      rng=rng,
+  otx_drive_waveform_v, dac_full_scale = _line_tx_drive(
+      symbols, sim_cfg, mzm_cfg, rng
   )
-
-  # 5. Upsample and filter through composite RF driver + MZM EO bandwidth
-  # Using the composite 3-dB bandwidth 1 / sqrt(1/f_drv^2 + 1/f_eo^2)
-  composite_bw_ghz = 1.0 / np.sqrt(
-      (1.0 / max(mzm_cfg.driver_bw_ghz, 1.0)) ** 2
-      + (1.0 / max(mzm_cfg.eo_bw_ghz, 1.0)) ** 2
+  tx_optical_field_sqrt_w = laser_field_sqrt_w * _mzm_field_transfer(
+      otx_drive_waveform_v, mzm_cfg
   )
-  rf_waveform_v = np.repeat(dac_out_v, sps)
-  otx_drive_waveform_v = electrical_channel.apply_bessel_lowpass(
-      rf_waveform_v, cutoff_ghz=composite_bw_ghz, sample_rate_hz=fs, order=4
-  )
-
-  # 6. Push-pull SiPh MZM optical field transfer function
-  # Bias at quadrature (-pi/2 on intensity cos^2 curve so +V increases power):
-  # E_out / E_in = IL * [cos(phi/2) + j * (1 - gamma) * sin(phi/2)]
-  bias_err_rad = np.deg2rad(mzm_cfg.bias_error_deg)
-  phi_t = (
-      -mzm_cfg.bias_phase_rad
-      + bias_err_rad
-      + (np.pi * otx_drive_waveform_v / mzm_cfg.vpi_volts)
-  )
-
-  er_int_lin = 10.0 ** (mzm_cfg.intrinsic_er_db / 10.0)
-  gamma = (np.sqrt(er_int_lin) - 1.0) / (np.sqrt(er_int_lin) + 1.0)
-  il_field = 10.0 ** (-mzm_cfg.insertion_loss_db / 20.0)
-
-  mzm_transfer = il_field * (
-      np.cos(0.5 * phi_t) + 1j * (1.0 - gamma) * np.sin(0.5 * phi_t)
-  )
-
-  # Residual phase chirp exp(j * (alpha_H / 2) * ln(I(t)))
-  intensity_norm = np.maximum(np.abs(mzm_transfer) ** 2, 1e-9)
-  chirp_phase = 0.5 * mzm_cfg.chirp_alpha * np.log(intensity_norm)
-  tx_optical_field_sqrt_w = (
-      laser_field_sqrt_w * mzm_transfer * np.exp(1j * chirp_phase)
-  )
-
   tx_optical_power_mw = (np.abs(tx_optical_field_sqrt_w) ** 2) * 1e3
   tx_avg_power_dbm = mw_to_dbm(float(np.mean(tx_optical_power_mw)))
 
-  # Find optimal sampling phase of TX optical waveform to measure P0..P3 and ER
-  best_phase, best_lag, _ = electrical_channel.find_optimal_sampling_phase(
-      waveform=tx_optical_power_mw, tx_symbols=symbols, sps=sps
+  # Steady-state (long-run) PAM4 levels, as IEEE OMA/ER are defined: drive the
+  # same TX chain with long runs of each level (noise-free CW laser) and
+  # average the middle of each run. Measuring at PRBS eye centers instead
+  # would report main-cursor amplitudes that depend on the TX FIR.
+  level_powers_mw = _long_run_levels_mw(
+      sim_cfg, mzm_cfg, dac_full_scale,
+      cw_power_mw=float(np.mean(np.abs(laser_field_sqrt_w) ** 2)) * 1e3,
   )
-  aligned_tx_mw = np.roll(tx_optical_power_mw, -best_lag * sps)
-  center_powers_mw = aligned_tx_mw[best_phase::sps][: len(symbols)]
-  level_powers_mw = np.zeros(4, dtype=np.float64)
-  for idx, lvl in enumerate(electrical_channel.PAM4_LEVELS):
-    mask = np.isclose(symbols, lvl, atol=0.05)
-    if np.any(mask):
-      level_powers_mw[idx] = float(np.mean(center_powers_mw[mask]))
-    else:
-      level_powers_mw[idx] = float(np.mean(center_powers_mw))
-
   p0_mw = max(float(level_powers_mw[0]), 1e-12)
   p3_mw = max(float(level_powers_mw[3]), p0_mw + 1e-12)
   oma_outer_mw = max(p3_mw - p0_mw, 1e-12)
@@ -415,8 +464,12 @@ def propagate_smf_fiber(
       lam_m**2 / (2.0 * np.pi * SPEED_OF_LIGHT_M_PER_S)
   ) * d_si_per_km
 
+  # e^{+j omega t} convention (numpy FFT synthesis, consistent with the MZM
+  # chirp sign): propagation multiplies by exp(-j * beta2 * L * omega^2 / 2).
+  # With D > 0 (beta2 < 0) and alpha_H < 0 this gives the standard
+  # |H| = |cos(theta) - alpha * sin(theta)| small-signal response.
   cd_phase = 0.5 * beta2_s2_per_km * length_km * (omega**2)
-  h_fiber = np.exp(1j * cd_phase)
+  h_fiber = np.exp(-1j * cd_phase)
 
   if length_km > 0 and fiber_cfg.pmd_ps_per_sqrt_km > 0:
     tau_pmd_s = fiber_cfg.pmd_ps_per_sqrt_km * 1e-12 * np.sqrt(length_km)
@@ -518,10 +571,9 @@ def receive_optical_signal(
     tia_voltage_v = vmax_overload * np.tanh(tia_voltage_v / vmax_overload)
 
   # 4. Line RX ADC front-end CDR sampling and quantization
-  best_phase, best_lag, polarity = (
-      electrical_channel.find_optimal_sampling_phase(
-          waveform=tia_voltage_v, tx_symbols=tx_symbols, sps=sps
-      )
+  best_phase, best_lag, polarity = electrical_channel.choose_sampling_phase(
+      tia_voltage_v, tx_symbols, sps, rx_cfg.orx_ffe_taps,
+      rx_cfg.orx_reference_tap, rx_cfg.orx_dfe_taps,
   )
   raw_samples = tia_voltage_v[best_phase::sps][: len(tx_symbols)]
   aligned_samples = electrical_channel.align_symbol_sequence(
@@ -572,12 +624,16 @@ def simulate_optical_sublink(
 ) -> OpticalSubLinkResult:
   """Runs the complete optical line segment: Laser + MZM + SMF-28 + PD/TIA + ORX."""
   num_samples = len(otx_input_symbols) * sim_cfg.samples_per_symbol
+  # Apply the effective laser RIN (derived from RIN_OMA when that is set).
+  laser_cfg = dataclasses.replace(
+      sim_cfg.laser, rin_db_hz=sim_cfg.effective_laser_rin_db_hz
+  )
 
   # Stage 3: O-band CW Laser with RIN, frequency/wavelength error, & linewidth
   laser_field_sqrt_w, eff_wavelength_nm = simulate_cw_laser(
       num_samples=num_samples,
       sample_rate_hz=sim_cfg.sample_rate_hz,
-      laser_cfg=sim_cfg.laser,
+      laser_cfg=laser_cfg,
       rng=rng,
   )
 
@@ -637,7 +693,7 @@ def simulate_optical_sublink(
       tx_symbols=reference_tx_symbols,
       sim_cfg=sim_cfg,
       rx_cfg=sim_cfg.receiver,
-      laser_cfg=sim_cfg.laser,
+      laser_cfg=laser_cfg,
       rng=rng,
   )
 

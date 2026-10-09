@@ -35,7 +35,8 @@ class TdecqResult:
   """IEEE 802.3 Reference Receiver TDECQ / TECQ measurement results.
 
   Attributes:
-    tdecq_db: Transmitter and Dispersion Eye Closure Quaternary (dB).
+    tdecq_db: Transmitter and Dispersion Eye Closure Quaternary (dB). inf
+      when the eye misses the target SER even with no added noise.
     reference_ffe_taps: 5-tap T-spaced reference equalizer weights (sum = 1).
     noise_enhancement_factor: Equalizer noise enhancement C_eq = sqrt(sum c_k^2).
     ideal_noise_sigma_mw: Ideal allowable RMS noise sigma_ideal (mW).
@@ -146,8 +147,10 @@ class LinkBudgetReport:
       BER = 2.4e-4 (dBm).
     total_power_budget_oma_db: Total available OMA link budget
       TX_OMA - RX_Sens_BTB (dB).
-    tdecq_allocation_db: TDECQ + dispersion penalty allocation (dB).
-    mpi_and_dgd_penalty_db: Multi-path interference & PMD/DGD allocation (dB).
+    tdecq_allocation_db: Measured dispersion / eye-closure penalty: link-length
+      ORX OMA sensitivity minus back-to-back sensitivity (dB, may be < 0).
+    mpi_and_dgd_penalty_db: Multi-path interference allocation (dB). PMD/DGD
+      is simulated directly, so it is not allocated separately.
     host_m2c_concatenation_penalty_db: OMA sensitivity penalty of the full
       receive direction to the host RX versus the module DSP receiver alone
       (dB). For LRO this is the linear-receive penalty.
@@ -260,16 +263,40 @@ def _pam4_slice_ser_given_sigma(
 def _sample_at_fractional_phase(
     waveform: np.ndarray, sps: int, fractional_phase: float, n_sym: int
 ) -> np.ndarray:
-  """Linearly interpolates symbol-spaced samples at `fractional_phase` in [0, sps)."""
-  phase_mod = fractional_phase % sps
-  idx0 = int(np.floor(phase_mod))
-  frac = phase_mod - idx0
-  idx1 = (idx0 + 1) % sps
-  s0 = waveform[idx0::sps][:n_sym]
-  s1 = waveform[idx1::sps][:n_sym]
-  if idx1 == 0:
-    s1 = np.roll(s1, -1)
-  return (1.0 - frac) * s0 + frac * s1
+  """Symbol-spaced samples at time k*sps + fractional_phase (linear interp).
+
+  `fractional_phase` may be negative or >= sps; samples then come from the
+  previous / next symbol period, so symbol k always means the same UI.
+  """
+  base = int(np.floor(fractional_phase))
+  frac = fractional_phase - base
+
+  def _at(i: int) -> np.ndarray:
+    q, r = divmod(i, sps)
+    return np.roll(waveform[r::sps][:n_sym], -q)
+
+  return (1.0 - frac) * _at(base) + frac * _at(base + 1)
+
+
+def _eye_center_phase(
+    waveform: np.ndarray, sps: int, coarse_phase: int
+) -> float:
+  """Fractional eye-center time (samples) from the mid-level crossings.
+
+  Takes the circular mean of the mid-level crossing times modulo one UI and
+  places the center half a UI away, choosing the representation closest to
+  `coarse_phase` so the symbol alignment found by correlation is kept.
+  """
+  x = waveform - np.mean(waveform)
+  idx = np.nonzero(np.signbit(x[:-1]) != np.signbit(x[1:]))[0]
+  if len(idx) < 16:
+    return float(coarse_phase)
+  t = idx + x[idx] / (x[idx] - x[idx + 1])  # linear-interpolated crossings
+  ang = 2.0 * np.pi * (t % sps) / sps
+  cross = (np.angle(np.mean(np.exp(1j * ang))) / (2.0 * np.pi) * sps) % sps
+  center = (cross + 0.5 * sps) % sps
+  candidates = center + sps * np.array([-1.0, 0.0, 1.0])
+  return float(candidates[np.argmin(np.abs(candidates - coarse_phase))])
 
 
 def calculate_tdecq(
@@ -307,10 +334,13 @@ def calculate_tdecq(
   )
   aligned_mw = np.roll(filtered_mw, -best_lag * sps)
   avg_power_mw = float(np.mean(aligned_mw))
+  # Eye center at fractional-sample resolution (mid-level crossings + 0.5 UI),
+  # so TDECQ does not depend on the sample grid.
+  center = _eye_center_phase(aligned_mw, sps, best_phase)
 
   # 3. Solve for 5-tap T-spaced MMSE reference equalizer on AC-coupled signal
   ref_tap = num_ref_taps // 2
-  center_raw_mw = aligned_mw[best_phase::sps][:n_sym]
+  center_raw_mw = _sample_at_fractional_phase(aligned_mw, sps, center, n_sym)
   ac_center = center_raw_mw - avg_power_mw
   padded_ac = np.pad(
       ac_center, (ref_tap, num_ref_taps - 1 - ref_tap), mode='edge'
@@ -352,7 +382,8 @@ def calculate_tdecq(
   # 4. Measure mean PAM4 optical power levels [P0, P1, P2, P3] on the unit-DC
   # equalized waveform (equivalent to long runs of identical symbols per IEEE)
   trim = max(32, num_ref_taps * 4)
-  center_eq_mw = eq_wave_mw[best_phase::sps][trim : n_sym - trim]
+  center_eq_mw = _sample_at_fractional_phase(
+      eq_wave_mw, sps, center, n_sym)[trim : n_sym - trim]
   tx_trimmed = tx_symbols[trim : n_sym - trim]
 
   level_powers_mw = np.zeros(4, dtype=np.float64)
@@ -388,10 +419,10 @@ def calculate_tdecq(
   # 5. Extract exact +/- 0.05 UI vertical slices around optimal sampling phase
   delta_samples = 0.05 * sps
   left_slice_mw = _sample_at_fractional_phase(
-      eq_wave_mw, sps, float(best_phase) - delta_samples, n_sym
+      eq_wave_mw, sps, center - delta_samples, n_sym
   )[trim : n_sym - trim]
   right_slice_mw = _sample_at_fractional_phase(
-      eq_wave_mw, sps, float(best_phase) + delta_samples, n_sym
+      eq_wave_mw, sps, center + delta_samples, n_sym
   )[trim : n_sym - trim]
 
   # 6. Ideal reference noise sigma_ideal for an un-impaired PAM4 signal
@@ -406,7 +437,8 @@ def calculate_tdecq(
         slice_samples, tx_trimmed, thresholds_mw, low
     )
     if f_low >= target_ser:
-      return low
+      # Eye already misses the target SER with no added noise: closed.
+      return 0.0
     f_high = _pam4_slice_ser_given_sigma(
         slice_samples, tx_trimmed, thresholds_mw, high
     )
@@ -429,9 +461,12 @@ def calculate_tdecq(
   sigma_g_mw = min(sigma_left_mw, sigma_right_mw)
   effective_sigma_mw = sigma_g_mw / max(c_eq, 1e-9)
 
-  tdecq_db = float(
-      10.0 * np.log10(max(sigma_ideal_mw / max(effective_sigma_mw, 1e-12), 1.0))
-  )
+  if effective_sigma_mw <= 0.0:
+    tdecq_db = float('inf')  # Closed eye: no noise budget left at all.
+  else:
+    tdecq_db = float(
+        10.0 * np.log10(max(sigma_ideal_mw / effective_sigma_mw, 1.0))
+    )
 
   return TdecqResult(
       tdecq_db=tdecq_db,
@@ -448,7 +483,7 @@ def calculate_tdecq(
       sub_eye_openings_mw=sub_eyes,
       thresholds_mw=thresholds_mw,
       ref_equalized_waveform_mw=eq_wave_mw,
-      optimal_sample_phase=best_phase,
+      optimal_sample_phase=int(round(center)) % sps,
   )
 
 
@@ -462,7 +497,10 @@ def _interpolate_power_at_target_ber(
   Returns NaN when the swept BERs do not straddle `target_ber`, rather than
   extrapolating to the edge of the sweep.
   """
-  valid = (bers > 1e-12) & (bers < 0.25)
+  # Zero-error points are valid "better than" evidence: floor them instead of
+  # dropping them, so a waterfall that crosses into zero errors still brackets.
+  bers = np.maximum(np.asarray(bers, dtype=float), 1e-30)
+  valid = bers < 0.25
   if np.sum(valid) < 2:
     return float('nan')
   if not np.min(bers[valid]) <= target_ber <= np.max(bers[valid]):
@@ -516,11 +554,16 @@ def sweep_receiver_sensitivity(
       rx_cfg=c2m.rx,
       channel_cfg=c2m.channel,
   )
+  retimed_tx = sim_cfg.host_channel.retimed_forwarding
   otx_in = (
       c2m_res.sliced_symbols
-      if sim_cfg.host_channel.retimed_forwarding
+      if retimed_tx
       else np.clip(c2m_res.equalized_symbols, -1.1, 1.1)
   )
+  # Symbols actually launched on the line: each hop counts its own errors.
+  line_symbols = c2m_res.sliced_symbols if retimed_tx else tx_symbols
+  line_bits = (electrical_channel.slice_pam4_symbols(line_symbols)[2]
+               if retimed_tx else tx_bits)
 
   trim_bits = 128
   points: List[SensitivitySweepPoint] = []
@@ -529,7 +572,7 @@ def sweep_receiver_sensitivity(
     point_rng = np.random.default_rng(sim_cfg.random_seed + 101)
     opt_res = optical_channel.simulate_optical_sublink(
         otx_input_symbols=otx_in,
-        reference_tx_symbols=tx_symbols,
+        reference_tx_symbols=line_symbols,
         sim_cfg=sim_cfg,
         rng=point_rng,
         additional_attenuation_db=float(atten_db),
@@ -538,8 +581,8 @@ def sweep_receiver_sensitivity(
     if include_host_m2c:
       m2c_res, downstream_ber = return_path.simulate_receive_direction(
           opt_res=opt_res,
-          ref_symbols=tx_symbols,
-          ref_bits=tx_bits,
+          ref_symbols=line_symbols,
+          ref_bits=line_bits,
           sim_cfg=sim_cfg,
           rng=point_rng,
       )
@@ -549,7 +592,10 @@ def sweep_receiver_sensitivity(
               != tx_bits[trim_bits:-trim_bits]
           )
       )
-      e2e_ber = max(e2e_bit_err, c2m_res.ber + downstream_ber)
+      # Retimed: hops are independent, so the floor adds them. Soft
+      # forwarding: downstream already includes the C2M errors.
+      floor = c2m_res.ber + downstream_ber if retimed_tx else downstream_ber
+      e2e_ber = max(e2e_bit_err, floor)
     else:
       e2e_ber = opt_res.orx_ber
 
@@ -572,8 +618,9 @@ def sweep_receiver_sensitivity(
   target = sim_cfg.receiver.target_pre_fec_ber
   step_db = 3.0
   for _ in range(max_extensions):
-    worst_ber = max(max(p.orx_ber, p.host_rx_ber) for p in points)
-    if worst_ber > target:
+    # Both the ORX and the end-to-end curves need a point above the target.
+    if (max(p.orx_ber for p in points) > target
+        and max(p.host_rx_ber for p in points) > target):
       break
     last_db = max(p.voa_attenuation_db for p in points)
     for k in range(1, 4):
@@ -582,8 +629,9 @@ def sweep_receiver_sensitivity(
   # configured channel) if even the strongest point misses the target, e.g.
   # an LRO path that only closes near the nominal received power.
   for _ in range(max_extensions):
-    best_ber = min(max(p.orx_ber, p.host_rx_ber) for p in points)
-    if best_ber < target:
+    # ...and a point below it.
+    if (min(p.orx_ber for p in points) < target
+        and min(p.host_rx_ber for p in points) < target):
       break
     first_db = min(p.voa_attenuation_db for p in points)
     for k in range(1, 4):
@@ -640,7 +688,7 @@ def compute_link_budget(
       sim_cfg=sim_cfg,
       target_ser=sim_cfg.receiver.target_tdecq_ser,
   )
-  cd_penalty_tdecq_db = max(0.0, tdecq_res.tdecq_db - tecq_res.tdecq_db)
+  cd_penalty_tdecq_db = tdecq_res.tdecq_db - tecq_res.tdecq_db  # info only
 
   if sens_btb is None:
     cfg_btb = copy.deepcopy(sim_cfg)
@@ -660,36 +708,36 @@ def compute_link_budget(
     fiber_atten_db = min(fiber_atten_db, total_channel_loss_db)
     conn_loss_db = total_channel_loss_db - fiber_atten_db
     splice_loss_db = 0.0
+  elif sim_cfg.fiber.length_km <= 0.0:
+    # Back-to-back: propagate_smf_fiber applies no channel loss at 0 km.
+    fiber_atten_db = conn_loss_db = splice_loss_db = 0.0
+    total_channel_loss_db = 0.0
   else:
     conn_loss_db = sim_cfg.fiber.connector_loss_db
     splice_loss_db = sim_cfg.fiber.splice_and_margin_loss_db
     total_channel_loss_db = fiber_atten_db + conn_loss_db + splice_loss_db
 
+  # Exact decomposition (no clamping; NaN propagates when a sensitivity is
+  # not bracketed):
+  #   net = budget - channel loss - CD/eye penalty - receive-path penalty - MPI
+  # where budget = TX OMA - BTB ORX sensitivity. PMD is simulated in the
+  # link-length sweep, so only MPI is a separate allocation.
   total_power_budget_oma_db = (
       opt_result.tx_oma_outer_dbm - sens_btb.sensitivity_oma_dbm_at_kp4
   )
-
-  measured_cd_sens_penalty_db = max(
-      0.0,
-      sens_link.sensitivity_oma_dbm_at_kp4 - sens_btb.sensitivity_oma_dbm_at_kp4,
+  tdecq_alloc_db = (
+      sens_link.sensitivity_oma_dbm_at_kp4 - sens_btb.sensitivity_oma_dbm_at_kp4
   )
-  tdecq_alloc_db = max(cd_penalty_tdecq_db, measured_cd_sens_penalty_db)
-
-  dgd_ps = sim_cfg.fiber.pmd_ps_per_sqrt_km * np.sqrt(
-      max(0.0, sim_cfg.fiber.length_km)
-  )
-  pmd_penalty_db = float(0.15 * (dgd_ps / (sim_cfg.symbol_period_s * 1e12)))
-  mpi_and_dgd_db = sim_cfg.fiber.mpi_penalty_db + pmd_penalty_db
-
-  m2c_penalty_db = max(
-      0.0,
+  mpi_and_dgd_db = sim_cfg.fiber.mpi_penalty_db
+  m2c_penalty_db = (
       sens_link.e2e_sensitivity_oma_dbm_at_kp4
-      - sens_link.sensitivity_oma_dbm_at_kp4,
+      - sens_link.sensitivity_oma_dbm_at_kp4
   )
-
   net_margin_db = (
-      opt_result.rx_oma_outer_dbm
-      - sens_link.e2e_sensitivity_oma_dbm_at_kp4
+      total_power_budget_oma_db
+      - total_channel_loss_db
+      - tdecq_alloc_db
+      - m2c_penalty_db
       - mpi_and_dgd_db
   )
 

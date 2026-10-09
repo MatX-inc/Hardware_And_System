@@ -90,11 +90,17 @@ def build_lane_configs(
   """
   base = module_cfg.lane
   num_lanes = base.num_lanes
-  for key in module_cfg.lane_overrides:
-    if not key.isdigit() or int(key) >= num_lanes:
+  overrides: Dict[int, Dict[str, Any]] = {}
+  for key, values in module_cfg.lane_overrides.items():
+    key_s = str(key).strip()
+    if not key_s.isdigit() or int(key_s) >= num_lanes:
       raise ValueError(
           f'lane_overrides key {key!r} is not a lane index in 0..{num_lanes - 1}'
       )
+    lane_idx = int(key_s)  # normalizes '03' -> 3
+    if lane_idx in overrides:
+      raise ValueError(f'lane {lane_idx} has more than one lane_overrides key')
+    overrides[lane_idx] = values
 
   spread_rng = np.random.default_rng([base.random_seed, 0xD8])
   lanes = []
@@ -106,7 +112,13 @@ def build_lane_configs(
     if module_cfg.monte_carlo:
       for attr, key in config.LANE_SPREAD_KEYS.items():
         sigma = getattr(module_cfg.spread, attr)
-        delta = float(spread_rng.normal(0.0, sigma)) if sigma > 0 else 0.0
+        # Always draw, so changing one sigma does not reshuffle the others.
+        delta = float(spread_rng.standard_normal()) * sigma
+        if key == 'mzm.target_outer_er_db' and cfg.mzm.target_outer_er_db <= 0:
+          delta = 0.0  # drive-voltage mode: no target ER to perturb
+        if key == 'fiber.connector_loss_db' and (
+            cfg.fiber.total_channel_loss_db is not None):
+          delta = 0.0  # fixed channel loss: connector loss is not used
         if delta:
           value = float(config.get_by_path(cfg, key)) + delta
           if key in ('fiber.connector_loss_db', 'mzm.insertion_loss_db',
@@ -115,7 +127,7 @@ def build_lane_configs(
           config.set_by_path(cfg, key, value)
           applied[key] = round(value, 4)
 
-    for key, value in module_cfg.lane_overrides.get(str(lane), {}).items():
+    for key, value in overrides.get(lane, {}).items():
       config.set_by_path(cfg, key, value)
       applied[key] = config.get_by_path(cfg, key)
 
@@ -126,18 +138,19 @@ def build_lane_configs(
 def check_spec(metrics: Dict[str, Any], spec: config.SpecLimits) -> List[str]:
   """Returns the list of spec violations for one lane's metrics."""
   failures = []
-  if metrics['tdecq_db'] > spec.tdecq_max_db:
-    failures.append(
-        f'TDECQ {metrics["tdecq_db"]:.2f} dB > {spec.tdecq_max_db:g} dB'
-    )
-  if metrics['tx_er_db'] < spec.er_min_db:
-    failures.append(f'ER {metrics["tx_er_db"]:.2f} dB < {spec.er_min_db:g} dB')
-  if metrics['tx_rlm'] < spec.rlm_min:
-    failures.append(f'R_LM {metrics["tx_rlm"]:.3f} < {spec.rlm_min:g}')
-  if metrics['end_to_end_ber'] > spec.pre_fec_ber_max:
-    failures.append(
-        f'BER {metrics["end_to_end_ber"]:.2e} > {spec.pre_fec_ber_max:.1e}'
-    )
+  # summarize_result maps inf/NaN to None (e.g. TDECQ of a closed eye).
+  tdecq, er = metrics.get('tdecq_db'), metrics.get('tx_er_db')
+  rlm, ber = metrics.get('tx_rlm'), metrics.get('end_to_end_ber')
+  if tdecq is None:
+    failures.append('TDECQ N/A (eye closed)')
+  elif tdecq > spec.tdecq_max_db:
+    failures.append(f'TDECQ {tdecq:.2f} dB > {spec.tdecq_max_db:g} dB')
+  if er is None or er < spec.er_min_db:
+    failures.append(f'ER {_cell(er, ".2f")} dB < {spec.er_min_db:g} dB')
+  if rlm is None or rlm < spec.rlm_min:
+    failures.append(f'R_LM {_cell(rlm, ".3f")} < {spec.rlm_min:g}')
+  if ber is None or ber > spec.pre_fec_ber_max:
+    failures.append(f'BER {_cell(ber, ".2e")} > {spec.pre_fec_ber_max:.1e}')
   if 'net_link_margin_db' in metrics:
     margin = metrics['net_link_margin_db']
     if margin is None:

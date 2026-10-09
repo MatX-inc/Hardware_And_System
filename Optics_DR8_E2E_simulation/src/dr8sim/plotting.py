@@ -218,12 +218,13 @@ def plot_dashboard(
         linewidth=1.5,
         label=f'{km} E2E Host RX (Sens={result.sensitivity_link.e2e_sensitivity_oma_dbm_at_kp4:+.2f} dBm)',
     )
+    tgt = result.sim_cfg.receiver.target_pre_fec_ber
     ax_sens.axhline(
-        2.4e-4,
+        tgt,
         color='black',
         linestyle='-.',
         linewidth=1.1,
-        label='KP4 Pre-FEC Threshold (2.4e-4)',
+        label=f'Pre-FEC BER target ({tgt:.1e})',
     )
     ax_sens.axhline(
         1.0e-3,
@@ -241,7 +242,8 @@ def plot_dashboard(
   ax_sens.set_xlabel('Received Outer OMA (dBm)', fontsize=9)
   ax_sens.set_ylabel('Pre-FEC Bit Error Ratio (BER)', fontsize=9)
   ax_sens.set_ylim(1e-8, 5e-2)
-  ax_sens.legend(loc='lower left', fontsize=7.8)
+  if result.sensitivity_btb is not None:
+    ax_sens.legend(loc='lower left', fontsize=7.8)
   ax_sens.grid(True, which='both', linestyle=':', alpha=0.4)
 
   # Panel (1, 2): Fiber Reach Sweep TDECQ & ORX SNR
@@ -263,7 +265,8 @@ def plot_dashboard(
   ax_reach.set_xlabel('SMF-28 Fiber Length (km)', fontsize=9)
   ax_reach.set_ylabel('IEEE 802.3 TDECQ (dB)', color=color_tdecq, fontsize=9)
   ax_reach.tick_params(axis='y', labelcolor=color_tdecq)
-  ax_reach.set_ylim(0.0, max([3.5] + [t * 1.25 for t in tdecqs]))
+  ax_reach.set_ylim(0.0, max([3.5] + [t * 1.25 for t in tdecqs
+                                       if t is not None and np.isfinite(t)]))
   ax_reach.grid(True, linestyle=':', alpha=0.4)
 
   ax_snr = ax_reach.twinx()
@@ -401,3 +404,488 @@ def plot_sweep(
   fig.savefig(path)
   plt.close(fig)
   return {'sweep_png': path}
+
+
+def _psd_db(waveform: np.ndarray, fs: float, sps: int):
+  """Welch PSD in dB re 1 V^2/GHz, returned as (freq_ghz, psd_db)."""
+  from scipy import signal as sp_signal  # pylint: disable=g-import-not-at-top
+
+  f, p = sp_signal.welch(waveform, fs=fs, nperseg=min(len(waveform), 512 * sps))
+  return f / 1e9, 10.0 * np.log10(np.maximum(p * 1e9, 1e-30))
+
+
+def _ctle_response_db(rx_cfg: Any, ctle_codes, freqs_hz: np.ndarray,
+                      fs: float) -> np.ndarray:
+  """Magnitude (dB) of the receiver's CTLE at `freqs_hz`."""
+  if rx_cfg.rx_ctle_stage_zeros_ghz:
+    h = electrical_channel.multistage_ctle_response(
+        freqs_hz, ctle_codes, rx_cfg.rx_ctle_stage_max_codes,
+        rx_cfg.rx_ctle_stage_zeros_ghz, rx_cfg.rx_ctle_stage_max_boost_db)
+    return 20.0 * np.log10(np.abs(h))
+  n = 1 << 16
+  impulse = np.zeros(n)
+  impulse[0] = 1.0
+  h = np.fft.rfft(electrical_channel.apply_ctle(
+      impulse, fs, rx_cfg.ctle_dc_gain_db, rx_cfg.ctle_peaking_gain_db,
+      rx_cfg.ctle_zero_ghz, rx_cfg.ctle_pole1_ghz, rx_cfg.ctle_pole2_ghz))
+  f = np.fft.rfftfreq(n, 1.0 / fs)
+  return np.interp(freqs_hz, f, 20.0 * np.log10(np.abs(h) + 1e-30))
+
+
+def plot_c2m_stages(
+    sim_cfg: Any,
+    segment: Any,
+    output_dir: str,
+    filename: str = 'c2m_stages.png',
+    title: str = '',
+) -> Dict[str, str]:
+  """Eye diagram and spectrum at each key step of an electrical C2M segment.
+
+  Rows: host TX output, after host channel, RX input (+noise), after CTLE,
+  ADC samples vs FFE+DFE output (symbol-spaced histograms), and the channel /
+  CTLE / FFE frequency responses.
+
+  Args:
+    sim_cfg: LinkSimulationConfig of the run.
+    segment: `electrical_channel.ElectricalLinkResult` (e.g. the C2M result).
+    output_dir: Directory where the PNG is saved.
+    filename: PNG file name.
+    title: Optional title suffix.
+
+  Returns:
+    {'c2m_png': path}.
+  """
+  from dr8sim import host_serdes  # pylint: disable=g-import-not-at-top
+
+  os.makedirs(output_dir, exist_ok=True)
+  sps = sim_cfg.samples_per_symbol
+  fs = sim_cfg.sample_rate_hz
+  nyq = sim_cfg.nyquist_freq_ghz
+  ref = segment.tx_symbols
+  segs = host_serdes.c2m_configs(sim_cfg)
+
+  stages = [
+      ('1. Host TX output (FFE, DAC, BW, jitter)', segment.tx_waveform_v),
+      ('2. After host channel (PCB + package)', segment.pcb_rx_waveform_v),
+      ('3. RX input (+ RX noise' + (', AFE' if segs.rx.rx_afe_bw_ghz else '')
+       + ')', segment.rx_input_waveform_v),
+      ('4. After RX CTLE', segment.ctle_waveform_v),
+  ]
+  fig, axes = plt.subplots(len(stages) + 2, 2, figsize=(15, 4.0 * (len(stages) + 2)),
+                           dpi=120, gridspec_kw={'width_ratios': [1, 1.25]})
+  fig.suptitle(
+      f'C2M signal along the chain{(" - " + title) if title else ""}\n'
+      f'IL @ Nyquist {segment.pcb_loss_nyquist_db:.2f} dB, post-EQ SNR '
+      f'{segment.post_eq_snr_db:.2f} dB, BER {segment.ber:.1e}',
+      fontsize=13, fontweight='bold', y=0.995)
+
+  for row, (name, wave) in enumerate(stages):
+    if wave is None:
+      continue
+    phase, lag, pol = electrical_channel.find_optimal_sampling_phase(
+        wave, ref, sps)
+    _plot_eye_diagram(axes[row, 0], pol * wave * 1e3, sps, name, 'mV',
+                      num_traces=250, best_phase=phase)
+    f_ghz, psd = _psd_db(wave, fs, sps)
+    ax = axes[row, 1]
+    ax.plot(f_ghz, psd, color='#1f77b4', linewidth=1.0)
+    ax.axvline(nyq, color='#d62728', linestyle='--', linewidth=1.0,
+               label=f'Nyquist {nyq:.1f} GHz')
+    ax.axvline(2 * nyq, color='gray', linestyle=':', linewidth=1.0,
+               label=f'Baud {2 * nyq:.1f} GHz')
+    ax.set_xlim(0, 160)
+    top = float(np.max(psd[(f_ghz > 0.5) & (f_ghz < 160)]))
+    ax.set_ylim(top - 70, top + 5)
+    ax.set_title(name + ' - power spectral density', fontsize=10,
+                 fontweight='bold')
+    ax.set_xlabel('Frequency (GHz)', fontsize=9)
+    ax.set_ylabel('PSD (dB re 1 V^2/GHz)', fontsize=9)
+    ax.grid(True, linestyle=':', alpha=0.4)
+    ax.legend(loc='upper right', fontsize=8)
+
+  # Symbol-spaced stages: ADC samples (before FFE) vs equalized output.
+  row = len(stages)
+  ax = axes[row, 0]
+  adc = segment.adc_samples - np.mean(segment.adc_samples)
+  adc = adc * np.std(ref) / max(np.std(adc), 1e-15)
+  bins = np.linspace(-1.6, 1.6, 160)
+  ax.hist(adc[200:], bins=bins, density=True, alpha=0.5, color='#ff7f0e',
+          label='5. ADC samples (before FFE), normalized')
+  ax.hist(segment.equalized_symbols[200:], bins=bins, density=True,
+          alpha=0.6, color='#1f77b4', label='6. After FFE + DFE (slicer input)')
+  for th in electrical_channel.PAM4_THRESHOLDS:
+    ax.axvline(th, color='#d62728', linestyle='--', linewidth=0.9)
+  ax.set_title('5-6. Symbol-spaced samples: before vs after FFE + DFE',
+               fontsize=10, fontweight='bold')
+  ax.set_xlabel('Normalized amplitude', fontsize=9)
+  ax.set_ylabel('Probability density', fontsize=9)
+  ax.legend(loc='upper center', fontsize=8)
+  ax.grid(True, linestyle=':', alpha=0.4)
+
+  ax = axes[row, 1]
+  taps = np.asarray(segment.ffe_taps)
+  ax.stem(np.arange(len(taps)), taps, basefmt=' ', label='FFE taps')
+  dfe = np.asarray(segment.dfe_taps)
+  if len(dfe):
+    ref_tap = int(np.argmax(np.abs(taps)))
+    ax.stem(ref_tap + 1 + np.arange(len(dfe)), -dfe, linefmt='C3-',
+            markerfmt='C3s', basefmt=' ', label='DFE taps (feedback, sign as applied)')
+  ax.axhline(0, color='black', linewidth=0.6)
+  ax.set_title('6. Converged FFE / DFE taps', fontsize=10, fontweight='bold')
+  ax.set_xlabel('Tap index (T-spaced)', fontsize=9)
+  ax.legend(loc='upper right', fontsize=8)
+  ax.grid(True, linestyle=':', alpha=0.4)
+
+  # Frequency responses.
+  row += 1
+  ax = axes[row, 1]
+  f_hz = np.linspace(0, 160e9, 1601)
+  ch = segs.channel
+  inch = ch.pcb_trace_length_mm / 25.4
+  fg = f_hz / 1e9
+  il = (ch.pcb_skin_loss_db_per_inch_sqrt_ghz * inch * np.sqrt(fg)
+        + ch.pcb_dielectric_loss_db_per_inch_ghz * inch * fg
+        + ch.package_connector_loss_db_at_nyquist * np.sqrt(fg / nyq))
+  ctle_db = _ctle_response_db(segs.rx, segment.ctle_codes, f_hz, fs)
+  ctle_db = ctle_db - ctle_db[0]
+  ax.plot(fg, -il, label='Host channel (−IL)', color='#1f77b4')
+  ax.plot(fg, ctle_db, label='RX CTLE (rel. DC)', color='#2ca02c')
+  ax.plot(fg, ctle_db - il, label='Channel × CTLE', color='#9467bd',
+          linewidth=2)
+  fb = 2 * nyq * 1e9
+  ffe_h = np.abs(np.exp(-2j * np.pi * np.outer(f_hz, np.arange(len(taps))) / fb)
+                 @ taps)
+  ffe_db = 20 * np.log10(np.maximum(ffe_h, 1e-9))
+  ax.plot(fg, ffe_db - ffe_db[0], label='FFE (rel. DC, periodic in fb)',
+          color='#ff7f0e', linestyle='--')
+  ax.axvline(nyq, color='#d62728', linestyle='--', linewidth=1.0)
+  ax.set_xlim(0, 160)
+  ax.set_ylim(-60, 25)
+  ax.set_title('Frequency responses', fontsize=10, fontweight='bold')
+  ax.set_xlabel('Frequency (GHz)', fontsize=9)
+  ax.set_ylabel('dB', fontsize=9)
+  ax.legend(loc='lower left', fontsize=8)
+  ax.grid(True, linestyle=':', alpha=0.4)
+
+  ax = axes[row, 0]
+  ax.axis('off')
+  tx = segs.tx
+  ax.text(0.0, 1.0, '\n'.join([
+      'Settings',
+      f'Host TX: {tx.tx_vppd:.2f} Vppd, FFE {tuple(round(t, 3) for t in tx.tx_fir_taps)}',
+      f'   DAC {tx.tx_dac_bits} bit, BW {tx.tx_bw_ghz:g} GHz, RJ {tx.tx_rj_rms_ps:g} ps'
+      + (f', DJ {tx.tx_dj_pp_ps:g} ps' if tx.tx_dj_pp_ps else '')
+      + (f', SNDR {tx.tx_snr_db:g} dB' if tx.tx_snr_db else ''),
+      f'Channel: {ch.pcb_trace_length_mm:g} mm trace '
+      f'({ch.pcb_skin_loss_db_per_inch_sqrt_ghz * np.sqrt(nyq) + ch.pcb_dielectric_loss_db_per_inch_ghz * nyq:.2f} dB/in @ Nyq)'
+      f' + {ch.package_connector_loss_db_at_nyquist:g} dB pkg/conn',
+      f'RX: noise {segs.rx.rx_noise_psd_mv_per_sqrt_ghz:g} mV/rtGHz, '
+      f'ENOB {segs.rx.rx_adc_enob:g}, FFE {len(taps)}t, DFE {len(dfe)}t',
+      f'CDR phase {segment.optimal_sample_phase}/{sps}',
+      '',
+      'Eyes: 250 traces, 2 UI, centered on each stage\'s best phase.',
+      'PSD: Welch estimate of the oversampled waveform.',
+  ]), va='top', family='monospace', fontsize=9)
+
+  fig.tight_layout(rect=[0, 0, 1, 0.975])
+  path = os.path.join(output_dir, filename)
+  fig.savefig(path)
+  plt.close(fig)
+  return {'c2m_png': path}
+
+
+def _draw_stage_row(ax_eye, ax_psd, name, wave, ref, sps, fs, nyq, unit,
+                    scale, ac_couple=False):
+  """Eye diagram (left) and PSD (right) for one waveform stage."""
+  phase, _, pol = electrical_channel.find_optimal_sampling_phase(wave, ref, sps)
+  shown = pol * wave * scale
+  _plot_eye_diagram(ax_eye, shown, sps, name, unit, num_traces=250,
+                    best_phase=phase)
+  psd_in = wave - np.mean(wave) if ac_couple else wave
+  f_ghz, psd = _psd_db(psd_in, fs, sps)
+  ax_psd.plot(f_ghz, psd, color='#1f77b4', linewidth=1.0)
+  ax_psd.axvline(nyq, color='#d62728', linestyle='--', linewidth=1.0,
+                 label=f'Nyquist {nyq:.1f} GHz')
+  ax_psd.axvline(2 * nyq, color='gray', linestyle=':', linewidth=1.0,
+                 label=f'Baud {2 * nyq:.1f} GHz')
+  ax_psd.set_xlim(0, 160)
+  band = (f_ghz > 0.5) & (f_ghz < 160)
+  top = float(np.max(psd[band]))
+  ax_psd.set_ylim(top - 70, top + 5)
+  ax_psd.set_title(name + ' - PSD', fontsize=10, fontweight='bold')
+  ax_psd.set_xlabel('Frequency (GHz)', fontsize=9)
+  ax_psd.set_ylabel('PSD (dB re 1 unit^2/GHz)', fontsize=9)
+  ax_psd.grid(True, linestyle=':', alpha=0.4)
+  ax_psd.legend(loc='upper right', fontsize=8)
+
+
+def _bessel_db(f_hz: np.ndarray, bw_ghz: float, order: int = 4) -> np.ndarray:
+  """Magnitude (dB) of an analog Bessel-Thomson lowpass with 3-dB `bw_ghz`."""
+  from scipy import signal as sp_signal  # pylint: disable=g-import-not-at-top
+
+  b, a = sp_signal.bessel(order, 1.0, btype='low', analog=True, norm='mag')
+  s = 1j * f_hz / (bw_ghz * 1e9)
+  return 20.0 * np.log10(np.abs(np.polyval(b, s) / np.polyval(a, s)) + 1e-30)
+
+
+def _fir_db(f_hz: np.ndarray, taps, baud_hz: float) -> np.ndarray:
+  """Magnitude (dB, relative to DC) of a T-spaced FIR."""
+  taps = np.asarray(taps, dtype=float)
+  h = np.abs(np.exp(-2j * np.pi * np.outer(f_hz, np.arange(len(taps)))
+                    / baud_hz) @ taps)
+  return 20.0 * np.log10(np.maximum(h, 1e-9)) - 20.0 * np.log10(
+      max(abs(np.sum(taps)), 1e-9))
+
+
+def _composite_bw(*bws: float) -> float:
+  return 1.0 / np.sqrt(sum((1.0 / max(b, 1.0)) ** 2 for b in bws))
+
+
+def plot_optical_and_return_stages(
+    result: simulator.EndToEndSimulationResult,
+    output_dir: str,
+    title: str = '',
+) -> Dict[str, str]:
+  """Stage-by-stage eyes and spectra along the optical path and back to host.
+
+  Part A (optical_stages.png): line-TX drive -> MZM optical output -> after
+  fiber -> TIA output, with optical-path frequency responses.
+  Part B (return_stages.png): module output driver (LRO linear driver or
+  retimed client TX) -> after M2C channel -> host RX input -> after host CTLE,
+  then sampled values before/after host FFE+DFE and the electrical responses.
+
+  Returns:
+    {'optical_png': path, 'return_png': path}.
+  """
+  from dr8sim import host_serdes  # pylint: disable=g-import-not-at-top
+
+  os.makedirs(output_dir, exist_ok=True)
+  cfg = result.sim_cfg
+  opt = result.optical_line
+  m2c = result.client_to_host_m2c
+  sps = cfg.samples_per_symbol
+  fs = cfg.sample_rate_hz
+  nyq = cfg.nyquist_freq_ghz
+  baud_hz = 2 * nyq * 1e9
+  ref = result.host_to_client_c2m.tx_symbols
+  is_lro = cfg.architecture == 'lro'
+  arch = 'LRO' if is_lro else 'Retimed'
+  head = (f'{arch}{" + Condor host" if cfg.host_serdes == "condor" else ""}, '
+          f'{cfg.fiber.length_km:g} km, {opt.total_fiber_loss_db:.1f} dB channel'
+          f'{(" - " + title) if title else ""}')
+  f_hz = np.linspace(1e8, 160e9, 1600)
+  fg = f_hz / 1e9
+  paths = {}
+
+  # ---------------- Part A: optical path ----------------
+  stages = [
+      ('A1. Line-TX drive (FIR, predistortion, DAC, driver+EO BW)',
+       opt.otx_drive_waveform_v, 'V', 1.0, False),
+      ('A2. MZM optical output power', opt.tx_optical_power_mw, 'mW', 1.0,
+       True),
+      (f'A3. After {cfg.fiber.length_km:g} km fiber + channel loss',
+       opt.rx_optical_power_mw, 'mW', 1.0, True),
+      ('A4. TIA output (PD + noise + TIA BW + overload)',
+       opt.tia_output_voltage_v, 'mV', 1e3, False),
+  ]
+  fig, axes = plt.subplots(len(stages) + 1, 2, figsize=(15, 4.0 * (len(stages) + 1)),
+                           dpi=120, gridspec_kw={'width_ratios': [1, 1.25]})
+  fig.suptitle(
+      f'Optical path signal along the chain - {head}\n'
+      f'TX OMA {opt.tx_oma_outer_dbm:+.2f} dBm, ER {opt.tx_er_db:.2f} dB, '
+      f'TECQ {result.tecq.tdecq_db:.2f} dB | RX OMA {opt.rx_oma_outer_dbm:+.2f} dBm, '
+      f'TDECQ {result.tdecq.tdecq_db:.2f} dB | ref DSP RX SNR {opt.orx_snr_db:.2f} dB',
+      fontsize=12, fontweight='bold', y=0.997)
+  for row, (name, wave, unit, scale, ac) in enumerate(stages):
+    _draw_stage_row(axes[row, 0], axes[row, 1], name, wave, ref, sps, fs, nyq,
+                    unit, scale, ac_couple=ac)
+
+  row = len(stages)
+  ax = axes[row, 1]
+  mzm = cfg.mzm
+  rx = cfg.receiver
+  tx_bw = _composite_bw(mzm.driver_bw_ghz, mzm.eo_bw_ghz)
+  rx_bw = _composite_bw(rx.pd_bw_ghz, rx.tia_bw_ghz)
+  lam_m = opt.effective_wavelength_nm * 1e-9
+  d_s_per_m = opt.total_dispersion_ps_nm * 1e-12 / 1e-9
+  fade = np.abs(np.cos(np.pi * lam_m ** 2 * d_s_per_m * f_hz ** 2 / 299792458.0))
+  ax.plot(fg, _fir_db(f_hz, mzm.line_tx_fir_taps, baud_hz),
+          label='Line-TX FIR (rel. DC)', color='#ff7f0e', linestyle='--')
+  ax.plot(fg, _bessel_db(f_hz, tx_bw),
+          label=f'Driver + MZM EO ({tx_bw:.1f} GHz)', color='#1f77b4')
+  ax.plot(fg, 20 * np.log10(np.maximum(fade, 1e-6)),
+          label=f'Fiber CD power fading ({opt.total_dispersion_ps_nm:+.2f} ps/nm)',
+          color='#8c564b')
+  ax.plot(fg, _bessel_db(f_hz, rx_bw),
+          label=f'PD + TIA ({rx_bw:.1f} GHz)', color='#2ca02c')
+  ax.plot(fg, _bessel_db(f_hz, nyq), label='TDECQ reference Rx (Bessel, fb/2)',
+          color='gray', linestyle=':')
+  ax.plot(fg, _bessel_db(f_hz, tx_bw) + _bessel_db(f_hz, rx_bw)
+          + 20 * np.log10(np.maximum(fade, 1e-6)),
+          label='TX BW x fiber x RX BW', color='#9467bd', linewidth=2)
+  ax.axvline(nyq, color='#d62728', linestyle='--', linewidth=1.0)
+  ax.set_xlim(0, 160)
+  ax.set_ylim(-40, 10)
+  ax.set_title('Optical-path frequency responses (small-signal)', fontsize=10,
+               fontweight='bold')
+  ax.set_xlabel('Frequency (GHz)', fontsize=9)
+  ax.set_ylabel('dB', fontsize=9)
+  ax.legend(loc='lower left', fontsize=8)
+  ax.grid(True, linestyle=':', alpha=0.4)
+  ax = axes[row, 0]
+  ax.axis('off')
+  ax.text(0.0, 1.0, '\n'.join([
+      'Settings (optical path)',
+      f'Line TX FIR {tuple(mzm.line_tx_fir_taps)}, DAC ENOB {mzm.line_tx_dac_enob:g}, '
+      f'arcsin predist {mzm.enable_arcsin_predistortion}',
+      f'Driver {mzm.driver_bw_ghz:g} GHz, MZM EO {mzm.eo_bw_ghz:g} GHz, Vpi {mzm.vpi_volts:g} V, '
+      f'target ER {mzm.target_outer_er_db:g} dB',
+      f'Laser {cfg.laser.cw_power_dbm:g} dBm, RIN {cfg.effective_laser_rin_db_hz:.1f} dB/Hz'
+      + (f' (RIN_OMA {cfg.rin_oma_db_hz:.1f})' if cfg.rin_oma_db_hz is not None else '')
+      + ', '
+      f'lambda {opt.effective_wavelength_nm:.2f} nm',
+      f'Fiber {cfg.fiber.length_km:g} km, D {opt.chromatic_dispersion_ps_nm_km:+.3f} ps/nm/km, '
+      f'loss {opt.total_fiber_loss_db:.2f} dB',
+      f'PD {rx.responsivity_a_per_w:g} A/W, {rx.pd_bw_ghz:g} GHz; TIA {rx.tia_bw_ghz:g} GHz, '
+      f'{rx.tia_transimpedance_ohms:g} ohm, IRND {rx.tia_irnd_pa_per_sqrt_hz:g} pA/rtHz',
+      f'Noise @ TIA input (RMS): thermal {opt.thermal_noise_rms_ua:.2f} uA, '
+      f'shot {opt.shot_noise_rms_ua:.2f} uA, RIN {opt.rin_noise_rms_ua:.2f} uA',
+      '',
+      'Optical PSDs are of the AC part of the power waveform.',
+      'CD fading curve ignores chirp (alpha_H) and is only a guide.',
+  ]), va='top', family='monospace', fontsize=9)
+  fig.tight_layout(rect=[0, 0, 1, 0.975])
+  paths['optical_png'] = os.path.join(output_dir, 'optical_stages.png')
+  fig.savefig(paths['optical_png'])
+  plt.close(fig)
+
+  # ---------------- Part B: receive direction to host ----------------
+  segs = host_serdes.m2c_configs(cfg)
+  drv_name = ('B1. LRO linear driver output (peaking, AGC, BW, noise, sat.)'
+              if is_lro else 'B1. Module client TX output (retimed)')
+  stages = [
+      (drv_name, m2c.tx_waveform_v),
+      ('B2. After M2C channel (module + connector + host PCB + pkg)',
+       m2c.pcb_rx_waveform_v),
+      ('B3. Host RX input (+ RX noise'
+       + (', AFE' if segs.rx.rx_afe_bw_ghz else '') + ')',
+       m2c.rx_input_waveform_v),
+      ('B4. After host RX CTLE' + (f' (PF codes {tuple(int(c) for c in m2c.ctle_codes)})'
+                                   if m2c.ctle_codes else ''),
+       m2c.ctle_waveform_v),
+  ]
+  fig, axes = plt.subplots(len(stages) + 2, 2, figsize=(15, 4.0 * (len(stages) + 2)),
+                           dpi=120, gridspec_kw={'width_ratios': [1, 1.25]})
+  fig.suptitle(
+      f'Receive direction to host - {head}\n'
+      f'M2C IL @ Nyquist {m2c.pcb_loss_nyquist_db:.2f} dB, host RX SNR '
+      f'{m2c.post_eq_snr_db:.2f} dB, host RX BER {m2c.ber:.1e} '
+      f'(ref DSP RX SNR {opt.orx_snr_db:.2f} dB)',
+      fontsize=12, fontweight='bold', y=0.997)
+  for row, (name, wave) in enumerate(stages):
+    if wave is not None:
+      _draw_stage_row(axes[row, 0], axes[row, 1], name, wave, ref, sps, fs,
+                      nyq, 'mV', 1e3)
+
+  row = len(stages)
+  ax = axes[row, 0]
+  bins = np.linspace(-1.6, 1.6, 160)
+  adc = m2c.adc_samples - np.mean(m2c.adc_samples)
+  adc = adc * np.std(ref) / max(np.std(adc), 1e-15)
+  ax.hist(adc[200:], bins=bins, density=True, alpha=0.45, color='#ff7f0e',
+          label='B5. Host ADC samples (before FFE), normalized')
+  ax.hist(m2c.equalized_symbols[200:], bins=bins, density=True, alpha=0.6,
+          color='#1f77b4', label='B6. Host FFE + DFE output (slicer input)')
+  ax.hist(opt.orx_equalized_symbols[200:], bins=bins, density=True,
+          histtype='step', color='black', linewidth=1.0,
+          label='Module DSP RX output' + (' (reference only)' if is_lro else ''))
+  for th in electrical_channel.PAM4_THRESHOLDS:
+    ax.axvline(th, color='#d62728', linestyle='--', linewidth=0.9)
+  ax.set_title('B5-B6. Symbol-spaced samples at the host RX', fontsize=10,
+               fontweight='bold')
+  ax.set_xlabel('Normalized amplitude', fontsize=9)
+  ax.set_ylabel('Probability density', fontsize=9)
+  ax.legend(loc='upper center', fontsize=7.5)
+  ax.grid(True, linestyle=':', alpha=0.4)
+
+  ax = axes[row, 1]
+  taps = np.asarray(m2c.ffe_taps)
+  ax.stem(np.arange(len(taps)), taps, basefmt=' ', label='Host FFE taps')
+  dfe = np.asarray(m2c.dfe_taps)
+  if len(dfe):
+    ref_tap = int(np.argmax(np.abs(taps)))
+    ax.stem(ref_tap + 1 + np.arange(len(dfe)), -dfe, linefmt='C3-',
+            markerfmt='C3s', basefmt=' ', label='Host DFE taps')
+  ax.axhline(0, color='black', linewidth=0.6)
+  ax.set_title('B6. Converged host FFE / DFE taps', fontsize=10,
+               fontweight='bold')
+  ax.set_xlabel('Tap index (T-spaced)', fontsize=9)
+  ax.legend(loc='upper right', fontsize=8)
+  ax.grid(True, linestyle=':', alpha=0.4)
+
+  row += 1
+  ax = axes[row, 1]
+  ch = segs.channel
+  inch = ch.pcb_trace_length_mm / 25.4
+  il = (ch.pcb_skin_loss_db_per_inch_sqrt_ghz * inch * np.sqrt(fg)
+        + ch.pcb_dielectric_loss_db_per_inch_ghz * inch * fg
+        + ch.package_connector_loss_db_at_nyquist * np.sqrt(fg / nyq))
+  ctle_db = _ctle_response_db(segs.rx, m2c.ctle_codes, f_hz, fs)
+  ctle_db = ctle_db - ctle_db[0]
+  ffe_db = _fir_db(f_hz, taps, baud_hz)
+  optical_db = (_bessel_db(f_hz, tx_bw) + _bessel_db(f_hz, rx_bw)
+                + 20 * np.log10(np.maximum(fade, 1e-6)))
+  # Retimed: the module DSP removes the optical channel; the host only sees
+  # the M2C trace. LRO: the host sees optical + driver + trace.
+  total = -il + ctle_db
+  if is_lro:
+    lro = cfg.lro
+    peak = 20 * np.log10(np.abs(electrical_channel.multistage_ctle_response(
+        f_hz, (1.0,), (1.0,), (lro.driver_peaking_zero_ghz,),
+        (lro.driver_peaking_db,))))
+    drv = peak + _bessel_db(f_hz, lro.driver_bw_ghz)
+    ax.plot(fg, optical_db, label='Optical path (TX BW x fiber x PD/TIA)',
+            color='#8c564b')
+    ax.plot(fg, drv, label=f'LRO driver (+{lro.driver_peaking_db:g} dB peak, '
+            f'{lro.driver_bw_ghz:g} GHz)', color='#17becf')
+    total = total + optical_db + drv
+  ax.plot(fg, -il, label='M2C channel (-IL)', color='#1f77b4')
+  ax.plot(fg, ctle_db, label='Host CTLE (rel. DC)', color='#2ca02c')
+  ax.plot(fg, total, label=('Optical x driver x M2C x CTLE' if is_lro
+                            else 'M2C x CTLE'), color='#9467bd', linewidth=2)
+  ax.plot(fg, ffe_db, label='Host FFE (rel. DC, periodic in fb)',
+          color='#ff7f0e', linestyle='--')
+  ax.axvline(nyq, color='#d62728', linestyle='--', linewidth=1.0)
+  ax.set_xlim(0, 160)
+  ax.set_ylim(-60, 25)
+  ax.set_title('What the host RX must equalize (small-signal)', fontsize=10,
+               fontweight='bold')
+  ax.set_xlabel('Frequency (GHz)', fontsize=9)
+  ax.set_ylabel('dB', fontsize=9)
+  ax.legend(loc='lower left', fontsize=7.5)
+  ax.grid(True, linestyle=':', alpha=0.4)
+  ax = axes[row, 0]
+  ax.axis('off')
+  lines = ['Settings (receive direction)']
+  if is_lro:
+    lro = cfg.lro
+    lines += [f'LRO driver: {lro.driver_output_vppd:g} Vppd AGC, peaking '
+              f'{lro.driver_peaking_db:g} dB @ zero {lro.driver_peaking_zero_ghz:g} GHz,',
+              f'   BW {lro.driver_bw_ghz:g} GHz, noise {lro.driver_noise_mv_rms:g} mVrms, '
+              f'sat {lro.driver_saturation_vppd:g} Vppd']
+  lines += [f'M2C: {ch.pcb_trace_length_mm:g} mm trace, '
+            f'{ch.package_connector_loss_db_at_nyquist:g} dB pkg/conn, '
+            f'IL {m2c.pcb_loss_nyquist_db:.2f} dB @ Nyq',
+            f'Host RX ({cfg.host_serdes}): noise {segs.rx.rx_noise_psd_mv_per_sqrt_ghz:g} mV/rtGHz, '
+            f'ENOB {segs.rx.rx_adc_enob:g}, FFE {len(taps)}t, DFE {len(dfe)}t',
+            f'   sampling jitter RJ {segs.rx.rx_sample_rj_ui:g} UI, '
+            f'DJ {segs.rx.rx_sample_dj_pp_ui:g} UI pp',
+            '',
+            'Black outline in B5-B6: module DSP receiver output on the',
+            'same optical signal' + (' (not in the LRO path).' if is_lro else '.')]
+  ax.text(0.0, 1.0, '\n'.join(lines), va='top', family='monospace', fontsize=9)
+  fig.tight_layout(rect=[0, 0, 1, 0.975])
+  paths['return_png'] = os.path.join(output_dir, 'return_stages.png')
+  fig.savefig(paths['return_png'])
+  plt.close(fig)
+  return paths

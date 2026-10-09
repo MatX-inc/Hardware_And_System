@@ -71,6 +71,8 @@ class ElectricalLinkResult:
     optimal_sample_phase: Optimal CDR sampling phase index within [0, sps - 1].
     ctle_codes: Multi-stage CTLE codes used (adapted or fixed); empty for the
       single-stage CTLE.
+    rx_input_waveform_v: RX input after added noise and the RX AFE filter,
+      before the CTLE (V).
   """
 
   tx_symbols: np.ndarray
@@ -90,6 +92,7 @@ class ElectricalLinkResult:
   ber: float
   optimal_sample_phase: int
   ctle_codes: Tuple[float, ...] = ()
+  rx_input_waveform_v: np.ndarray | None = None
 
 
 def generate_pam4_symbols(
@@ -414,7 +417,9 @@ def transmit_electrical_pam4(
     if dj_pp_ps > 0:
       signs = rng.choice((-1.0, 1.0), size=len(symbols))
       jitter_sym_s += signs * 0.5 * dj_pp_ps * 1e-12
-    jitter_t = np.repeat(jitter_sym_s, sps)
+    # Each symbol's timing offset must apply to the whole transition that
+    # starts that symbol, so center the per-symbol value on the edge.
+    jitter_t = np.roll(np.repeat(jitter_sym_s, sps), sps // 2)
     waveform = waveform + d_waveform_dt * jitter_t
 
   return waveform
@@ -513,12 +518,20 @@ def equalize_ffe_dfe(
 
   if ref_tap is None:
     ref_tap = num_ffe_taps // 2
+  min_len = num_ffe_taps + num_dfe_taps + 128
+  if n < min_len:
+    raise ValueError(
+        f'equalize_ffe_dfe needs at least {min_len} symbols, got {n}'
+    )
 
-  pad_pre = ref_tap
-  pad_post = num_ffe_taps - 1 - ref_tap
+  # ref_tap = number of pre-cursor taps (taps on future samples). Tap j of the
+  # FFE multiplies x[k + ref_tap - j], so the main cursor sits at index ref_tap.
+  pad_pre = num_ffe_taps - 1 - ref_tap
+  pad_post = ref_tap
   x_padded = np.pad(x, (pad_pre, pad_post), mode='edge')
 
-  n_train = max(256, int(n * training_fraction))
+  eval_tail = max(16, num_ffe_taps)
+  n_train = min(max(256, int(n * training_fraction)), n - eval_tail - 64)
   start_idx = max(num_dfe_taps, ref_tap)
   rows = n_train - start_idx
 
@@ -537,6 +550,12 @@ def equalize_ffe_dfe(
   ata = a_mat.T @ a_mat + reg_lambda * rows * np.eye(num_ffe_taps + num_dfe_taps)
   atb = a_mat.T @ b_vec
   weights = np.linalg.solve(ata, atb)
+  # MMSE taps are biased: the output is the symbol scaled by g < 1 plus noise.
+  # Remove the bias so the fixed slicer thresholds sit mid-way between levels.
+  y_train = a_mat @ weights
+  gain = float(np.dot(y_train, b_vec) / max(np.dot(b_vec, b_vec), 1e-15))
+  if gain > 0.1:  # Skip when the FFE window can't see the main cursor at all.
+    weights = weights / gain
   ffe_taps = weights[:num_ffe_taps]
   dfe_taps = weights[num_ffe_taps:]
 
@@ -564,9 +583,9 @@ def equalize_ffe_dfe(
       else:
         decisions[k] = 1.0
 
-  # Evaluate metrics on the post-training payload window to avoid overfitting
-  eval_start = min(max(64, num_ffe_taps * 2), n // 4)
-  eval_end = n - max(16, num_ffe_taps)
+  # Evaluate metrics only after the training window to avoid overfitting
+  eval_start = n_train
+  eval_end = n - eval_tail
   eq_eval = eq_samples[eval_start:eval_end]
   tx_eval = tx_symbols[eval_start:eval_end]
 
@@ -580,12 +599,12 @@ def equalize_ffe_dfe(
   empirical_ser = float(np.mean(tx_idx != rx_idx))
   empirical_ber = float(np.mean(tx_bits != rx_bits))
 
-  # Combine empirical counting with analytical PAM4 Gaussian Q-function tail
-  # when zero or very few errors occur in finite-length simulation
-  d_half = 1.0 / 3.0
-  sigma_n = np.sqrt(noise_power)
-  analytical_ser = 1.5 * 0.5 * special.erfc(d_half / (np.sqrt(2.0) * sigma_n))
-  analytical_ber = 0.5 * analytical_ser
+  # Combine empirical counting with an analytical Gaussian tail estimate when
+  # zero or very few errors occur in a finite-length simulation. Each level
+  # uses its own mean and sigma (optical links have level-dependent noise,
+  # e.g. RIN and shot noise grow with power).
+  analytical_ser = pam4_gaussian_ser(eq_eval, tx_eval)
+  analytical_ber = 0.5 * analytical_ser  # Gray code: 1 bit per symbol error
 
   if np.sum(tx_idx != rx_idx) >= 10:
     ser = empirical_ser
@@ -595,6 +614,94 @@ def equalize_ffe_dfe(
     ber = float(max(empirical_ber, analytical_ber))
 
   return eq_samples, ffe_taps, dfe_taps, snr_db, ser, ber
+
+
+def band_limited_noise(
+    n: int,
+    sample_rate_hz: float,
+    psd_v_per_sqrt_ghz: float,
+    bandwidth_ghz: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+  """White Gaussian noise of a given one-sided PSD, brick-wall limited.
+
+  The result has PSD `psd_v_per_sqrt_ghz`^2 (V^2/GHz, one-sided) from DC to
+  `bandwidth_ghz` and nothing above, so its RMS is
+  psd * sqrt(bandwidth_ghz) for any sample rate.
+  """
+  if psd_v_per_sqrt_ghz <= 0:
+    return np.zeros(n)
+  std_full = psd_v_per_sqrt_ghz * np.sqrt(0.5 * sample_rate_hz / 1e9)
+  noise = rng.normal(0.0, std_full, size=n)
+  spectrum = np.fft.rfft(noise)
+  freqs_ghz = np.fft.rfftfreq(n, d=1.0 / sample_rate_hz) / 1e9
+  spectrum[freqs_ghz > bandwidth_ghz] = 0.0
+  return np.fft.irfft(spectrum, n=n)
+
+
+def pam4_gaussian_ser(samples: np.ndarray, tx_symbols: np.ndarray) -> float:
+  """Gaussian-tail PAM4 SER using each level's own mean and sigma.
+
+  Assumes the slicer thresholds at -2/3, 0, +2/3 and equiprobable levels.
+  """
+  thresholds = PAM4_THRESHOLDS
+  ser = 0.0
+  count = 0
+  for idx, level in enumerate(PAM4_LEVELS):
+    mask = np.isclose(tx_symbols, level)
+    if not np.any(mask):
+      continue
+    vals = samples[mask]
+    mu = float(np.mean(vals))
+    sigma = max(float(np.std(vals)), 1e-12)
+    p = 0.0
+    if idx > 0:
+      p += 0.5 * special.erfc((mu - thresholds[idx - 1]) / (np.sqrt(2) * sigma))
+    if idx < 3:
+      p += 0.5 * special.erfc((thresholds[idx] - mu) / (np.sqrt(2) * sigma))
+    ser += p * mask.sum()
+    count += mask.sum()
+  return float(ser / max(count, 1))
+
+
+def choose_sampling_phase(
+    waveform: np.ndarray,
+    ref_symbols: np.ndarray,
+    sps: int,
+    num_ffe_taps: int,
+    ref_tap: int,
+    num_dfe_taps: int,
+    max_symbols: int = 4096,
+) -> Tuple[int, int, float]:
+  """CDR: locks delay/polarity by correlation, then picks the sampling phase
+  that maximizes post-FFE/DFE SNR (where a real adaptive CDR settles).
+
+  The phase scan spans one UI centered on the correlation peak and carries the
+  symbol delay across the phase wrap, so alignment stays consistent.
+
+  Returns:
+    (phase, symbol_lag, polarity) for `waveform[phase::sps]` aligned with
+    `align_symbol_sequence(..., lag, polarity)`.
+  """
+  phase0, lag0, polarity = find_optimal_sampling_phase(
+      waveform, ref_symbols, sps
+  )
+  n = min(len(ref_symbols), max_symbols, len(waveform) // sps)
+  if n < num_ffe_taps + num_dfe_taps + 128:
+    return phase0, lag0, polarity
+  ref = ref_symbols[:n]
+  best = (-np.inf, phase0, lag0)
+  for d in range(-(sps // 2), sps - sps // 2):
+    phase, lag = phase0 + d, lag0
+    if phase >= sps:
+      phase, lag = phase - sps, lag + 1
+    elif phase < 0:
+      phase, lag = phase + sps, lag - 1
+    samples = align_symbol_sequence(waveform[phase::sps], lag, polarity)[:n]
+    score = _mmse_snr_db(samples, ref, num_ffe_taps, ref_tap, num_dfe_taps)
+    if score > best[0]:
+      best = (score, phase, lag)
+  return best[1], best[2], polarity
 
 
 def simulate_electrical_segment(
@@ -733,7 +840,12 @@ def adapt_multistage_ctle(
     return np.real(np.fft.ifft(spectrum * h))
 
   mid = tuple(0.5 * m for m in max_codes)
-  phase0, lag, polarity = find_optimal_sampling_phase(_filtered(mid), ref, sps)
+  phase0, lag0, polarity = find_optimal_sampling_phase(_filtered(mid), ref, sps)
+  # Fixed-seed impairment draws so every candidate is scored on equal terms.
+  imp_rng = np.random.default_rng(12345)
+  rj = imp_rng.normal(0.0, 1.0, n_sym)
+  dj = imp_rng.choice((-1.0, 1.0), n_sym)
+  adc_noise_seed = 54321
 
   cache = {}
 
@@ -741,10 +853,26 @@ def adapt_multistage_ctle(
     codes = tuple(float(round(c)) for c in codes)
     if codes not in cache:
       wave = _filtered(codes)
+      slope_wave = np.gradient(wave)
       best = -np.inf
-      for dp in range(-2, 3):
-        phase = (phase0 + dp) % sps
-        samples = align_symbol_sequence(wave[phase::sps][:n_sym], lag, polarity)
+      # Score over a full UI around the lock point, including the impairments
+      # added after the CTLE (sampling jitter and ADC noise), so peaking that
+      # only helps a noiseless sampler is not rewarded.
+      for d in range(-(sps // 2), sps - sps // 2):
+        phase, lag = phase0 + d, lag0
+        if phase >= sps:
+          phase, lag = phase - sps, lag + 1
+        elif phase < 0:
+          phase, lag = phase + sps, lag - 1
+        samples = align_symbol_sequence(wave[phase::sps], lag, polarity)[:n_sym]
+        if host_cfg.rx_sample_rj_ui > 0 or host_cfg.rx_sample_dj_pp_ui > 0:
+          slope = align_symbol_sequence(
+              slope_wave[phase::sps], lag, polarity)[:n_sym]
+          jit = (host_cfg.rx_sample_rj_ui * rj
+                 + 0.5 * host_cfg.rx_sample_dj_pp_ui * dj)
+          samples = samples + slope * jit * sps
+        samples = quantize_signal(samples, host_cfg.rx_adc_enob,
+                                  rng=np.random.default_rng(adc_noise_seed))
         best = max(best, _mmse_snr_db(samples, ref, num_ffe_taps, ref_tap,
                                       num_dfe_taps))
       cache[codes] = best
@@ -826,12 +954,13 @@ def receive_electrical_waveform(
       ),
   )
 
-  # 3. Add electrical RX front-end input-referred thermal noise before CTLE
-  rx_bw_ghz = sim_cfg.baud_rate_gbaud * 0.75
-  noise_rms_v = (
-      host_cfg.rx_noise_psd_mv_per_sqrt_ghz * 1e-3 * np.sqrt(rx_bw_ghz)
-  )
-  noisy_rx_v = pcb_rx_v + rng.normal(0.0, noise_rms_v, size=pcb_rx_v.shape)
+  # 3. Add electrical RX front-end input-referred thermal noise before CTLE:
+  # white at rx_noise_psd within the receiver noise bandwidth (0.75 x baud,
+  # the IEEE COM receiver-filter convention), zero outside it, so the in-band
+  # noise does not depend on samples_per_symbol.
+  noisy_rx_v = pcb_rx_v + band_limited_noise(
+      len(pcb_rx_v), fs, host_cfg.rx_noise_psd_mv_per_sqrt_ghz * 1e-3,
+      0.75 * sim_cfg.baud_rate_gbaud, rng)
   if host_cfg.rx_afe_bw_ghz > 0:
     noisy_rx_v = apply_bessel_lowpass(
         noisy_rx_v, cutoff_ghz=host_cfg.rx_afe_bw_ghz, sample_rate_hz=fs
@@ -862,8 +991,9 @@ def receive_electrical_waveform(
     )
 
   # 5. CDR sampling phase recovery and RX ADC quantization
-  best_phase, best_lag, polarity = find_optimal_sampling_phase(
-      waveform=ctle_v, tx_symbols=tx_symbols, sps=sps
+  best_phase, best_lag, polarity = choose_sampling_phase(
+      ctle_v, tx_symbols, sps, num_ffe_taps,
+      ref_tap if ref_tap is not None else num_ffe_taps // 2, num_dfe_taps,
   )
   raw_symbol_samples = ctle_v[best_phase::sps][: len(tx_symbols)]
   if host_cfg.rx_sample_rj_ui > 0 or host_cfg.rx_sample_dj_pp_ui > 0:
@@ -912,4 +1042,5 @@ def receive_electrical_waveform(
       ber=ber,
       optimal_sample_phase=best_phase,
       ctle_codes=ctle_codes,
+      rx_input_waveform_v=noisy_rx_v,
   )

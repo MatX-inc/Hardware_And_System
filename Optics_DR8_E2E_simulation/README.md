@@ -29,6 +29,17 @@ runs the report still shows the module DSP receiver, labelled "Reference DSP
 RX". That receiver isn't in the LRO signal path. It's there so you can read
 the linear-receive penalty directly.
 
+Laser RIN can be given either as laser RIN relative to average power
+(`--rin-db-hz`, `laser.rin_db_hz`) or as an IEEE-style RIN_OMA
+(`--rin-oma-db-hz`, `laser.rin_oma_db_hz`). RIN_OMA is converted at the MZM
+target outer ER:
+
+  RIN_OMA = RIN + 10·log10((1 + ER²) / (2·(ER − 1)²))
+
+That's +0.71 dB at 5 dB ER. Spec RIN_xOMA values include a reflection
+condition, while the model has none, so the whole value is treated as
+intrinsic laser RIN.
+
 `--channel-loss-db` (`fiber.total_channel_loss_db`) fixes the total passive
 channel loss, for example to a spec channel such as 3.0 dB (DR8) or 4.0 dB
 (DR8-2). Chromatic dispersion still follows `fiber.length_km`.
@@ -99,8 +110,17 @@ dr8sim run -o output/run
 This prints the stage-by-stage report, the link budget, and a 0–6 km reach
 table. It writes `simulation_report.txt`, `simulation_summary.json`,
 `config.json` (the exact config used), and a 6-panel dashboard PNG/PDF.
-Add `--no-budget` to skip the sensitivity sweeps (much faster). The exit code
-is 1 if the net link margin is negative.
+Add `--no-budget` to skip the sensitivity sweeps (much faster).
+
+Exit codes:
+
+- 0: pass.
+- 1: fail. Either the net margin is negative, or, with `--no-budget`, the
+  end-to-end BER is above `receiver.target_pre_fec_ber`.
+- 3: margin unknown, because the sensitivity sweep never reached the target
+  BER.
+
+The reach sweep and the sensitivity sweeps cap runs at 8192 symbols.
 
 ### All 8 lanes
 
@@ -135,7 +155,7 @@ dr8sim sweep laser.wavelength_error_nm --range -6 9 6 -o output/sweeps
 dr8sim sweep receiver.tia_irnd_pa_per_sqrt_hz --values 12 16 20 --metrics tdecq_db orx_snr_db e2e_ber
 ```
 
-Any field can be swept. Each run writes a CSV and a plot.
+Any field can be swept. With `-o`, it writes a CSV and a plot.
 
 ### Configuration
 
@@ -164,9 +184,10 @@ The presets in [configs/](configs/) are:
 |---|---|
 | `worst_case_6km.json` | 6 km at +4.5 nm laser error and λ0 = 1300 nm. This is what the original `main.py` ran by default. |
 | `dr8_2km.json` | 2 km reach |
-| `lpo_unretimed.json` | Linear-drive (no DSP retiming) at 2 km |
+| `lpo_unretimed.json` | Soft forwarding (module DSP equalizes but doesn't slice) at 2 km. **Not** a true LPO model |
 | `condor_retimed_500m_4db.json` | Condor host TX/RX + retimed module, 500 m, 4.0 dB |
 | `condor_lro_500m_4db.json` | Condor host TX/RX + LRO module, 500 m, 4.0 dB |
+| `condor_lro_500m_4db_silicon_fit.json` | Condor LRO with impairments fitted toward Condor silicon data |
 | `lro_500m_4db.json` | LRO module, 500 m, 4.0 dB total channel loss |
 | `module_monte_carlo.json` | 8-lane Monte Carlo with spread, a degraded lane 7, and spec limits |
 
@@ -183,7 +204,8 @@ print(result.tdecq.tdecq_db, result.link_budget.net_link_margin_db)
 rows = sweep_parameter(cfg, "mzm.target_outer_er_db", [4.0, 4.5, 5.0, 5.5])
 
 mod = ModuleConfig(monte_carlo=True)
-print(run_module(mod, jobs=8).passed)
+if __name__ == "__main__":  # needed for jobs > 1 (process pool) on macOS
+    print(run_module(mod, jobs=8).passed)
 ```
 
 ## Tests

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import sys
 from typing import Any, Dict, List, Sequence
@@ -35,6 +36,7 @@ _SHORTCUTS = {
     'wavelength_error_nm': 'laser.wavelength_error_nm',
     'freq_offset_ghz': 'laser.freq_offset_ghz',
     'rin_db_hz': 'laser.rin_db_hz',
+    'rin_oma_db_hz': 'laser.rin_oma_db_hz',
     'target_er_db': 'mzm.target_outer_er_db',
     'pcb_trace_length_mm': 'host_channel.pcb_trace_length_mm',
     'channel_loss_db': 'fiber.total_channel_loss_db',
@@ -81,8 +83,9 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
   )
   parser.add_argument(
       '--unretimed', action='store_true',
-      help='LPO / linear-drive mode: no DSP slicing between client RX and '
-           'line TX (host_channel.retimed_forwarding=false).',
+      help='soft forwarding: the module DSP equalizes but does not slice '
+           'before re-transmitting (host_channel.retimed_forwarding=false). '
+           'Not a true LPO model.',
   )
 
 
@@ -125,8 +128,11 @@ def _json_default(obj: Any) -> Any:
   raise TypeError(f'Not JSON serializable: {type(obj).__name__}')
 
 
-def _print_reach_table(rows: List[Dict[str, Any]]) -> None:
-  print('\nFiber Reach Sweep (SMF-28):')
+def _print_reach_table(rows: List[Dict[str, Any]],
+                       fixed_loss: bool = False) -> None:
+  print('\nFiber Reach Sweep (SMF-28)' + (
+      ': total channel loss held fixed, only dispersion varies'
+      if fixed_loss else '') + ':')
   print(
       f'{"Length (km)":>11} | {"CD (ps/nm)":>11} | {"RX OMA (dBm)":>13} | '
       f'{"TDECQ (dB)":>10} | {"ORX SNR (dB)":>12} | {"ORX Pre-FEC BER":>15} | '
@@ -144,6 +150,8 @@ def _print_reach_table(rows: List[Dict[str, Any]]) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
   """Single-lane end-to-end simulation."""
+  if (args.c2m_plot or args.path_plots) and not args.output_dir:
+    raise ValueError('--c2m-plot / --path-plots need --output-dir')
   sim_cfg = _load_module_config(args).lane
   result = simulator.run_end_to_end_simulation(
       sim_cfg=sim_cfg, run_sensitivity_and_budget=not args.no_budget
@@ -156,7 +164,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     reach_sweep = simulator.sweep_fiber_reach(
         sim_cfg=sim_cfg, lengths_km=args.reach_km
     )
-    _print_reach_table(reach_sweep)
+    _print_reach_table(
+        reach_sweep, fixed_loss=sim_cfg.fiber.total_channel_loss_db is not None)
 
   if args.output_dir:
     from dr8sim import plotting  # pylint: disable=g-import-not-at-top
@@ -165,21 +174,38 @@ def cmd_run(args: argparse.Namespace) -> int:
     plots = plotting.plot_dashboard(
         result=result, reach_sweep=reach_sweep, output_dir=args.output_dir
     )
+    if args.c2m_plot:
+      plots.update(plotting.plot_c2m_stages(
+          sim_cfg, result.host_to_client_c2m, args.output_dir,
+          title=os.path.basename(args.config or 'defaults')))
+    if args.path_plots:
+      plots.update(plotting.plot_optical_and_return_stages(
+          result, args.output_dir,
+          title=os.path.basename(args.config or 'defaults')))
     with open(os.path.join(args.output_dir, 'simulation_report.txt'), 'w',
               encoding='utf-8') as f:
       f.write(report_text + '\n')
     config.save_json(sim_cfg, os.path.join(args.output_dir, 'config.json'))
     summary = simulator.summarize_result(result)
-    summary['reach_sweep'] = reach_sweep
+    summary['reach_sweep'] = [
+        {k: (v if isinstance(v, str) else simulator.json_float(v))
+         for k, v in row.items()}
+        for row in reach_sweep
+    ]
     summary['plots'] = plots
     _write_json(
         os.path.join(args.output_dir, 'simulation_summary.json'), summary
     )
     print(f'\nSaved report, summary, config, and plots to: {args.output_dir}')
 
+  # Exit codes: 0 pass, 1 fail (negative margin, or BER over target when no
+  # budget was run), 3 margin unknown (sensitivity not bracketed).
   if result.link_budget is not None:
-    return 0 if result.link_budget.net_link_margin_db >= 0 else 1
-  return 0
+    margin = result.link_budget.net_link_margin_db
+    if math.isnan(margin):
+      return 3
+    return 0 if margin >= 0 else 1
+  return 0 if result.end_to_end_ber <= sim_cfg.receiver.target_pre_fec_ber else 1
 
 
 def _parse_lane_set(text: str) -> tuple[str, str]:
@@ -303,6 +329,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help='write report, JSON summary, config, and plots here')
   p_run.add_argument('--no-budget', action='store_true',
                      help='skip sensitivity sweeps and link budget (faster)')
+  p_run.add_argument('--c2m-plot', action='store_true',
+                     help='also plot eye + spectrum at each C2M step '
+                          '(c2m_stages.png; needs --output-dir)')
+  p_run.add_argument('--path-plots', action='store_true',
+                     help='also plot eye + spectrum along the optical path '
+                          'and the receive direction to the host '
+                          '(optical_stages.png, return_stages.png)')
   p_run.add_argument('--no-reach-sweep', action='store_true',
                      help='skip the fiber-length sweep')
   p_run.add_argument('--reach-km', type=float, nargs='+',
@@ -362,7 +395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
   args = parser.parse_args(argv)
   try:
     return args.func(args)
-  except ValueError as e:
+  except (ValueError, TypeError) as e:
     parser.error(str(e))
   return 2
 
