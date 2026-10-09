@@ -1,0 +1,37 @@
+id,ws,title,status,owner,due,next,notes
+lab-01,lab,Lab equipment BOM,todo,Yong,,"List 224G PAM4 BERT, sampling scope with optical head (TDECQ/OMA), power meters, VOAs, optical switch, MPO-16 test cords, OSFP host/module compliance boards, thermal forcing.",
+lab-02,lab,Facilities: power and liquid cooling for the switch,todo,Yong,,"Arista 7060XE7-64PRS-RV3-L is DC/ORv3 and fully liquid-cooled (35 °C inlet, 5.5–6 LPM, BMQC/UQD). Confirm the lab can support it, or plan an air-cooled lab switch.",
+lab-03,lab,Fiber plant and loss emulation,todo,Yong,,"MPO-16 cords plus VOAs to sweep channel loss across 2.92 dB (our connector loss), 3.0 dB (DR8) and 4.0 dB (DR8-2 / vendor TRO).",
+lab-04,lab,Test automation and logging,todo,Yong,,Script CMIS/DDM reads and pre-FEC BER / FEC histogram counters from the switch CLI into one log format.,
+opt-05,optics,Request LRO and FRO DR8 samples from a second source,todo,Yong,,"Eoptolink sells LRO, FRO and LPO 1.6T lines. Request datasheets and samples.",
+opt-06,optics,Confirm single MPO-16 connector option,todo,Yong,,Our package uses one MPO-16; check each vendor's DR8 connector.,
+opt-04,optics,Amphenol technical follow-up: factory automation and BER test,doing,Yong / Chico,2026-10-09,Friday meeting. Ask for outgoing BER test conditions and data format.,
+opt-07,optics,Track standards: 802.3dj DR8 and OIF 224G RTLR,doing,Yong,,"No published 224G RTLR spec yet, so LRO interop must be proven per part number with each host.",
+opt-01,optics,Amphenol: quote for 16 LRO and FRO DR8 units,waiting,Amphenol,,Chase quote (MP pricing from the Oct 7 call is on Drive).,From Oct 7 Amphenol/MatX call notes.
+opt-02,optics,Amphenol: 2 samples of each product,waiting,Amphenol,,Confirm ship date. Samples come with integrated heat sinks for air-cooled testing.,
+opt-03,optics,"Amphenol: DVT report, component portfolio, firmware size",waiting,Amphenol,,Review DVT report when received.,
+sw-03,switch,Choose lab test switch,todo,Yong,,"Candidates: Nexthop NH-4220-F (air-cooled, AC power, fits a normal lab) or Arista 'Banff' (air-cooled). Either avoids the liquid loop and ORv3 DC power the 64PRS-RV3-L needs.",
+sw-06,switch,Nexthop: liquid-cooled / ORv3 DC variant?,todo,Yong,,"NH-4220-F is air-cooled and AC-powered. Ask whether a liquid-cooled ORv3 DC version is on the roadmap, or whether our network racks can take an air-cooled 2RU box.",
+sw-07,switch,Nexthop: third-party DR8 optics and LRO tuning,todo,Yong,,"Their 1.6T optics are 2DR4 with 2×MPO-12. Confirm support and tuning access for third-party single-MPO-16 DR8 (Amphenol, Eoptolink, Coherent), including LRO host TX settings.",
+sw-08,switch,Resolve OSFP-RHS (Arista) vs OSFP-IHS (Nexthop) heat sink,todo,Yong,,"Optics SKUs differ by heat sink type. Confirm each optics vendor offers both, and order qual samples for both switches.",Affects optics sourcing (WS2).
+sw-09,switch,Compare NOS access for qual automation,todo,Yong,,"Arista EOS vs Nexthop NOS/SONiC: per-lane pre-FEC BER, FEC histograms, CMIS access, host SerDes tuning.",
+sw-10,switch,Arista HQ lab tour,todo,Yong / Chico,,Offered by Arista on Sep 1 for 'a couple of months' out. Ask to include 1.6T LRO/DR8 test results.,
+sw-01,switch,Arista 7060XE7-64PRS-RV3-L open questions,doing,Yong,,"Confirm model name (64PS vs 64PRS), TH6-C = 200G SerDes, 512×200G on all ports, power with hotter optics, LRO support/tuning.",
+sw-04,switch,"Arista: lead time, EFT/GA and eval units for 64PRS-RV3-L",doing,Yong / Chico,,"Ask Srinidhi/Kevin for quoted lead time, EFT unit availability and confirm the roadmap name. No lead time found in email or Slack yet.",
+sw-05,switch,"Nexthop: intro call, NDA, lead time, pricing, eval unit",doing,Yong,,"An Nguyen replied Oct 9; schedule the call. Ask for NH-4220-F lead time, eval/loaner unit, pricing at our volume.",
+sw-02,switch,Pick a backup TH6 switch vendor,done,Yong,,Nexthop NH-4220-F chosen as backup for lead-time risk (pending decision).,Other ODM/white-box options can still be added to the switch matrix.
+qual-02,qual,Define test matrix,todo,Yong,,Optic (vendor × LRO/FRO) × switch × port group × temperature × channel loss.,
+qual-03,qual,Define pass/fail criteria,todo,Yong,,"Pre-FEC BER limit, FEC codeword histogram tail, link flaps, TDECQ/OMA margin, power and case temperature.",
+qual-01,qual,Write qualification test plan,doing,Yong,,Review the draft test plan; set pass/fail limits from 802.3dj.,Test plan doc: https://claude.ai/artifact/Xh7r2RGbdHXHRFzLPd4wZM
+data-01,data,Define data format and log schema,todo,Yong,,"One schema for scope, BERT and switch counter data.",
+data-02,data,Build reusable analysis skill,todo,Yong / Claude,,"After first dataset: save parsing, plots and pass/fail checks as a skill.",
+sim-02,sim,Thermal: 17 W LRO vs 25 W FRO at 70 °C case,todo,Yong,,Amphenol's thermal sims use these powers. Check against our liquid-cooled riding heat sink design.,
+sim-05,sim,Get CSAK loopback S-parameters,todo,Yong,,OSFP 0.5 m and 1.5 m loopbacks plus the 13–14 in trace loopback; run the bench on them and fit CondorConfig.,
+sim-07,sim,Measure Condor with a real DR8 module on CSAK,todo,Yong,,"Plug retimed and LRO DR8 samples into the CSAK OSFP cage in fiber loopback; read Condor PF/FFE/DFE, SNR, BER. Best calibration point. Needs Amphenol samples.",
+sim-08,sim,Re-run LRO peaking vs host trace and sensitivity tables,todo,Yong,,Those tables predate the Oct 8 audit and the 6-tap FFE update; re-run to confirm the trend (≥250 mm traces fail).,
+sim-09,sim,Model the TH6 switch host channel for LRO,todo,Yong,,"TH6 uses the same Condor SerDes, so dr8sim applies to the switch side. Add the Arista switch host trace (roadmap lists <26 dB PCB for the 2OU liquid-cooled box) and pick the worst ports for the qual matrix.",
+sim-10,sim,Set dr8sim spec limits to the 802.3dj revision,todo,Yong,,Default SpecLimits are placeholders; align with the same limits used in the qual test plan.,
+sim-03,sim,"Link budget: LRO vs retimed with Condor host (500 m, 4 dB)",doing,Yong,,"Retimed: +4.18 dB margin, Condor RX BER ~1e-16 (pass). LRO: +3.94 dB margin, but Condor RX BER 2.0e-6 with default impairments (fails the 1.5e-6 TH6 DG104 criterion) and 3.4e-8 with silicon-fit impairments (pass). Verdict depends on calibration.","Output folders: output/condor_retimed_500m_4db, condor_lro_500m_4db, condor_lro_500m_4db_silicon_fit. Doc table (3.6e-6 / 8.6e-8) differs slightly from the latest output files; re-sync."
+sim-06,sim,Get Phytile / TH6 package and IOD-to-OSFP channel models,waiting,Broadcom,,MatX asked Broadcom for Phytile S-parameters; no answer recorded. Also need BCM78914 package IL file from Broadcom ESP.,
+sim-04,sim,Calibrate Condor RX model against CSAK silicon,blocked,Yong,,Model is 2–3 decades pessimistic at 45–55 dB. Fix peaking-filter shapes and RX jitter units (UI vs ps). Needs CSAK channel S-parameters or the Broadcom AMI model.,Script: scripts/calibrate_condor_csak.py
+sim-01,sim,Build dr8sim end-to-end link simulator,done,Yong,,"Done. 8 lanes × 200G PAM4, retimed and LRO modes, Condor host model, 8-lane Monte Carlo. Code audit fixes Oct 8; test suite passing.","Folder: ~/Desktop/dr8sim (README, docs/condor_host_serdes.md)."

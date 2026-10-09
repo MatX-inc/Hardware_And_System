@@ -1,0 +1,150 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run: single lane (full report)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "-o",
+        "output/run"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: single lane, fast (no budget)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "--no-budget",
+        "-o",
+        "output/run_fast"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: worst case 6 km",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "-c",
+        "configs/worst_case_6km.json",
+        "-o",
+        "output/worst"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: LRO 500 m, 4 dB channel",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "-c",
+        "configs/lro_500m_4db.json",
+        "--reach-km",
+        "0",
+        "0.5",
+        "1",
+        "2",
+        "-o",
+        "output/lro_500m_4db"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: Condor host + retimed, 500 m, 4 dB",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "-c",
+        "configs/condor_retimed_500m_4db.json",
+        "--reach-km",
+        "0",
+        "0.5",
+        "2",
+        "-o",
+        "output/condor_retimed_500m_4db"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: Condor host + LRO, 500 m, 4 dB",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "run",
+        "-c",
+        "configs/condor_lro_500m_4db.json",
+        "--reach-km",
+        "0",
+        "0.5",
+        "2",
+        "-o",
+        "output/condor_lro_500m_4db"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: 8-lane module (Monte Carlo)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "module",
+        "-c",
+        "configs/module_monte_carlo.json",
+        "--budget",
+        "-j",
+        "4",
+        "-o",
+        "output/module"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: sweep laser wavelength error",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": [
+        "sweep",
+        "laser.wavelength_error_nm",
+        "--range",
+        "-6",
+        "9",
+        "6",
+        "-o",
+        "output/sweep"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Run: custom command (prompts for args)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "dr8sim",
+      "args": "${command:pickArgs}",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

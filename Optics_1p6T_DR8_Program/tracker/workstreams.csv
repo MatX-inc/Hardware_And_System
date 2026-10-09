@@ -1,0 +1,7 @@
+id,code,name,goal
+lab,WS1,Lab setup,Stand up a lab that can qualify 1.6T DR8 OSFP optics on TH6 switches.
+optics,WS2,DR8 optics sourcing,"Pick the 1.6T DR8 source(s), LRO and/or FRO, with samples in the lab."
+switch,WS3,Switch vendor selection,Primary: Arista 7060XE7-64PRS-RV3-L. Backup for lead-time risk: Nexthop NH-4220-F. Plus a lab test switch.
+qual,WS4,Qualification,Run the optic × switch qualification matrix to a pass/fail decision.
+data,WS5,Test data analysis,Repeatable analysis and reports for every qual run.
+sim,WS6,1.6T DR8 simulation,"dr8sim: end-to-end 1.6T DR8 link model (host Condor SerDes → optics → host), backing the LRO vs FRO choice."

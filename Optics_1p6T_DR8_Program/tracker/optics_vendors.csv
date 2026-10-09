@@ -1,0 +1,4 @@
+id,vendor,part,arch,dsp,power,status,notes
+amphenol,Amphenol,1.6T DR8 OSFP,"LRO, FRO (also LPO)","Broadcom DSP, integrated drivers","LRO 17 W / FRO 25 W (thermal sim, 70 °C case)",samples requested,"MP capacity 160k units/month. FW 5.3, I2C 400 kHz. Outgoing BER test on every unit."
+eoptolink,Eoptolink,1.6T DR8,"LRO, FRO, LPO",,,long list,Not contacted yet.
+coherent,Coherent,1.6T OSFP DR8,"LPO, LRO, DSP",,,contacted,"Contacted Oct 7; routed to Paragon (Terry Warford, Bay Area rep), who replied with answers and datasheets."

@@ -1,0 +1,7 @@
+{
+  "architecture": "lro",
+  "fiber": {
+    "length_km": 0.5,
+    "total_channel_loss_db": 4.0
+  }
+}
